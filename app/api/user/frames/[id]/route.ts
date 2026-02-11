@@ -8,6 +8,8 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
+    console.log(`🔍 PUT /api/user/frames/${params.id} - Iniciando verificación`);
+    
     // Extraer token del header
     const token = authService.extractTokenFromHeader(request);
     if (!token) {
@@ -26,13 +28,61 @@ export async function PUT(
       }, { status: 401 });
     }
 
-    const frameData = await request.json();
-    const result = await frameService.updateFrame(params.id, session.user.id, frameData);
+    console.log('✅ Usuario autenticado:', session.user.email);
+    
+    // Leer los datos del cuerpo de la solicitud
+    let frameData;
+    try {
+      frameData = await request.json();
+      console.log(`📥 Datos recibidos para actualizar marco ${params.id}:`, frameData);
+    } catch (parseError) {
+      console.error('❌ Error al parsear JSON:', parseError);
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Formato de datos inválido' 
+      }, { status: 400 });
+    }
+
+    // NUEVO: Función para limpiar y convertir valores de medidas
+    const cleanMeasurementValue = (value: any): number | null => {
+      if (value === null || value === undefined || value === '') {
+        return null;
+      }
+      const num = Number(value);
+      return isNaN(num) ? null : num;
+    };
+
+    // NUEVO: Limpiar los valores de medidas antes de enviar al servicio
+    const cleanedFrameData = {
+      ...frameData,
+      width_mm: cleanMeasurementValue(frameData.width_mm),
+      height_mm: cleanMeasurementValue(frameData.height_mm),
+      bridge_mm: cleanMeasurementValue(frameData.bridge_mm),
+      temple_mm: cleanMeasurementValue(frameData.temple_mm)
+    };
+
+    console.log('🧹 Datos limpiados para actualizar marco:', cleanedFrameData);
+
+    // Validar datos mínimos
+    if (!cleanedFrameData.name || !cleanedFrameData.style) {
+      console.log('❌ Faltan campos obligatorios:', { 
+        name: cleanedFrameData.name, 
+        style: cleanedFrameData.style 
+      });
+      return NextResponse.json({ 
+        success: false, 
+        message: 'Faltan campos obligatorios: nombre y tipo de rostro' 
+      }, { status: 400 });
+    }
+
+    const result = await frameService.updateFrame(params.id, session.user.id, cleanedFrameData);
     
     if (!result.success) {
+      console.log('❌ Error al actualizar marco:', result.message);
       return NextResponse.json(result, { status: 400 });
     }
     
+    console.log('✅ Marco actualizado exitosamente');
     return NextResponse.json(result);
   } catch (error) {
     console.error('Error en PUT /api/user/frames/[id]:', error);

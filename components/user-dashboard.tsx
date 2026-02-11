@@ -7,8 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Scan, Award, Clock, ArrowRight, Calendar, Edit, Trash2, Plus, Upload, X, Loader2, AlertCircle } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog"
 
 // Tipos para los marcos
 interface FrameMeasurements {
@@ -55,17 +54,6 @@ interface UserDashboardProps {
   onGoToPricing: () => void
 }
 
-// Opciones para el tipo de rostro
-const FACE_TYPE_OPTIONS = [
-  "Ovalado",
-  "Redondo",
-  "Diamante",
-  "Cuadrado",
-  "Rectangular",
-  "Triangular",
-  "Oblongo"
-]
-
 // Valores por defecto para las medidas
 const DEFAULT_MEASUREMENTS: FrameMeasurements = {
   width: "",
@@ -74,12 +62,77 @@ const DEFAULT_MEASUREMENTS: FrameMeasurements = {
   temple: ""
 }
 
+// Función para calcular el tipo de rostro basado en las medidas
+const calculateFaceType = (measurements: FrameMeasurements): string => {
+  const width = parseFloat(measurements.width) || 0
+  const bridge = parseFloat(measurements.bridge) || 0
+  const temple = parseFloat(measurements.temple) || 0
+
+  // Lógica de cálculo basada en las reglas proporcionadas
+  if (width >= 54 && width <= 58 && bridge >= 17 && bridge <= 19 && temple >= 140 && temple <= 145) {
+    return "Cuadrado"
+  } else if (width >= 58 && width <= 62 && bridge >= 18 && bridge <= 20 && temple >= 145 && temple <= 150) {
+    return "Oblongo"
+  } else if (width >= 56 && width <= 60 && bridge >= 16 && bridge <= 18 && temple >= 135 && temple <= 140) {
+    return "Redondo"
+  } else if (width >= 52 && width <= 54 && bridge >= 14 && bridge <= 16 && temple >= 140 && temple <= 145) {
+    return "Diamante"
+  } else if (width >= 52 && width <= 56 && bridge >= 16 && bridge <= 18 && temple >= 140 && temple <= 145) {
+    return "Ovalado"
+  }
+
+  // Si no coincide exactamente, hacemos un cálculo ponderado
+  const scores = {
+    "Cuadrado": 0,
+    "Oblongo": 0,
+    "Redondo": 0,
+    "Diamante": 0,
+    "Ovalado": 0
+  }
+
+  // Ponderaciones
+  if (width >= 54 && width <= 58) scores.Cuadrado += 3
+  if (bridge >= 17 && bridge <= 19) scores.Cuadrado += 2
+  if (temple >= 140 && temple <= 145) scores.Cuadrado += 1
+
+  if (width >= 58 && width <= 62) scores.Oblongo += 3
+  if (bridge >= 18 && bridge <= 20) scores.Oblongo += 2
+  if (temple >= 145 && temple <= 150) scores.Oblongo += 1
+
+  if (width >= 56 && width <= 60) scores.Redondo += 3
+  if (bridge >= 16 && bridge <= 18) scores.Redondo += 2
+  if (temple >= 135 && temple <= 140) scores.Redondo += 1
+
+  if (width >= 52 && width <= 54) scores.Diamante += 3
+  if (bridge >= 14 && bridge <= 16) scores.Diamante += 2
+  if (temple >= 140 && temple <= 145) scores.Diamante += 1
+
+  if (width >= 52 && width <= 56) scores.Ovalado += 3
+  if (bridge >= 16 && bridge <= 18) scores.Ovalado += 2
+  if (temple >= 140 && temple <= 145) scores.Ovalado += 1
+
+  // Encontrar el tipo con mayor puntuación
+  const maxScore = Math.max(...Object.values(scores))
+
+  if (maxScore === 0) return "Ovalado" // Por defecto
+
+  const faceTypes = Object.keys(scores) as Array<keyof typeof scores>
+  return faceTypes.find(type => scores[type] === maxScore) || "Ovalado"
+}
+
+// Función para validar que todas las medidas estén completas
+const validateMeasurements = (measurements: FrameMeasurements): boolean => {
+  return Object.values(measurements).every(value =>
+    value !== "" && !isNaN(parseFloat(value)) && parseFloat(value) > 0
+  )
+}
+
 export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: UserDashboardProps) {
   const [frames, setFrames] = useState<Frame[]>([])
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [newFrame, setNewFrame] = useState<Omit<Frame, 'id'>>({
     name: "",
-    faceType: "",
+    faceType: "", // Esto se calculará automáticamente
     description: "",
     price: "",
     imageUrl: "",
@@ -96,6 +149,8 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
     totalFrames: 0,
     activeFrames: 0
   })
+  const [canCloseModal, setCanCloseModal] = useState(false)
+  const [measurementsError, setMeasurementsError] = useState<string>("")
 
   const statusColors = {
     active: "bg-green-500",
@@ -107,6 +162,43 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
   useEffect(() => {
     loadFrames()
   }, [])
+
+  // Efecto para calcular el tipo de rostro cuando cambian las medidas
+  useEffect(() => {
+    if (newFrame.measurements) {
+      const allMeasurementsFilled = validateMeasurements(newFrame.measurements)
+
+      if (allMeasurementsFilled) {
+        const calculatedFaceType = calculateFaceType(newFrame.measurements)
+        setNewFrame(prev => ({
+          ...prev,
+          faceType: calculatedFaceType
+        }))
+        setMeasurementsError("")
+      } else {
+        setNewFrame(prev => ({
+          ...prev,
+          faceType: ""
+        }))
+        setMeasurementsError("Por favor completa todas las medidas para calcular el tipo de rostro")
+      }
+    }
+  }, [newFrame.measurements])
+
+  // Efecto similar para el frame en edición
+  useEffect(() => {
+    if (editingFrame?.measurements) {
+      const allMeasurementsFilled = validateMeasurements(editingFrame.measurements)
+
+      if (allMeasurementsFilled) {
+        const calculatedFaceType = calculateFaceType(editingFrame.measurements)
+        setEditingFrame(prev => prev ? {
+          ...prev,
+          faceType: calculatedFaceType
+        } : null)
+      }
+    }
+  }, [editingFrame?.measurements])
 
   // Función para subir imagen a Cloudinary
   const uploadToCloudinary = async (file: File): Promise<string> => {
@@ -166,55 +258,49 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
 
       const data = await response.json();
 
-      console.log('📊 Datos recibidos de la API:', data);
-
       if (data.success) {
-        // Transformar los datos de la BD al formato del frontend
         const transformedFrames = (data.frames || []).map((frame: any): Frame | null => {
           try {
-            // Validar que frame no sea null/undefined
             if (!frame) {
               console.warn('⚠️ Frame nulo encontrado en la respuesta de la API');
               return null;
             }
 
-            // Crear objeto de medidas con validaciones
-            const measurements: FrameMeasurements = {
-              width: frame.width_mm?.toString()?.trim() || '',
-              height: frame.height_mm?.toString()?.trim() || '',
-              bridge: frame.bridge_mm?.toString()?.trim() || '',
-              temple: frame.temple_mm?.toString()?.trim() || ''
+            // FUNCIÓN AUXILIAR para manejar valores null de la BD
+            const parseMeasurementFromDB = (value: any) => {
+              return value === null || value === undefined ? '' : String(value);
             };
 
-            // Validar que todas las medidas sean strings válidas
-            const validatedMeasurements = {
-              width: String(measurements.width || ''),
-              height: String(measurements.height || ''),
-              bridge: String(measurements.bridge || ''),
-              temple: String(measurements.temple || '')
+            const measurements: FrameMeasurements = {
+              width: parseMeasurementFromDB(frame.width_mm),
+              height: parseMeasurementFromDB(frame.height_mm),
+              bridge: parseMeasurementFromDB(frame.bridge_mm),
+              temple: parseMeasurementFromDB(frame.temple_mm)
             };
+
+            let faceType = String(frame.style || '');
+            if (!faceType && validateMeasurements(measurements)) {
+              faceType = calculateFaceType(measurements);
+            }
 
             return {
               id: String(frame.id || ''),
               name: String(frame.name || 'Sin nombre'),
-              faceType: String(frame.style || ''),
+              faceType,
               description: String(frame.description || ''),
               price: String(frame.price || ''),
               imageUrl: String(frame.image_url || ''),
               purchaseLink: String(frame.purchase_link || ''),
               isActive: Boolean(frame.is_active),
-              measurements: validatedMeasurements
+              measurements
             };
           } catch (error) {
             console.error('❌ Error transformando frame:', error, frame);
             return null;
           }
-        }).filter((frame: Frame | null): frame is Frame => frame !== null); // Filtrar frames nulos
-
-        console.log('🔄 Marcos transformados:', transformedFrames);
+        }).filter((frame: Frame | null): frame is Frame => frame !== null);
 
         setFrames(transformedFrames);
-        // Actualizar estadísticas
         const totalFrames = transformedFrames.length;
         const activeFrames = transformedFrames.filter((f: Frame) => f.isActive).length;
         setFrameStats({ totalFrames, activeFrames });
@@ -223,14 +309,7 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
       }
     } catch (error: any) {
       console.error('❌ Error loading frames:', error);
-
-      if (error.message.includes('Failed to fetch')) {
-        setLoadError('Error de conexión. Verifica tu internet e intenta de nuevo.');
-      } else if (error.message.includes('401') || error.message.includes('Sesión')) {
-        setLoadError('Sesión expirada. Por favor, vuelve a iniciar sesión');
-      } else {
-        setLoadError(error.message || 'Error al cargar los marcos');
-      }
+      setLoadError(error.message || 'Error al cargar los marcos');
     } finally {
       if (showLoading) {
         setLoading(false);
@@ -240,27 +319,42 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
 
   // Función para agregar un nuevo marco
   const handleAddFrame = async () => {
-    if (!newFrame.name || !newFrame.faceType) {
-      alert("Por favor completa los campos obligatorios: Nombre y Tipo de rostro")
+    if (!newFrame.name || !newFrame.imageUrl) {
+      alert("Por favor completa los campos obligatorios: Nombre e Imagen")
+      return
+    }
+
+    // Validar que todas las medidas estén completas
+    if (!newFrame.measurements || !validateMeasurements(newFrame.measurements)) {
+      alert("Por favor completa todas las medidas del marco (ancho, alto, puente y temple)")
+      return
+    }
+
+    // Validar que se haya calculado el tipo de rostro
+    if (!newFrame.faceType) {
+      alert("No se pudo calcular el tipo de rostro. Por favor verifica las medidas.")
       return
     }
 
     try {
       const token = localStorage.getItem('auth_token')
 
-      // Verificar que el token exista
       if (!token) {
         console.error('❌ No se encontró token en localStorage');
         alert('No hay sesión activa. Por favor, inicia sesión nuevamente.');
         return;
       }
 
-      console.log('🔍 Token obtenido:', token.substring(0, 20) + '...');
-
-      // Obtener medidas del nuevo marco (asegurarse de que existan)
+      // Obtener medidas del nuevo marco
       const measurements = newFrame.measurements || DEFAULT_MEASUREMENTS;
 
-      // Preparar datos para la BD - VALIDAR cada campo
+      // FUNCIÓN AUXILIAR para convertir valores vacíos a null
+      const parseMeasurement = (value: string) => {
+        const num = parseFloat(value);
+        return isNaN(num) ? null : num;
+      };
+
+      // Preparar datos para la BD - CONVERTIR VALORES VACÍOS A null
       const frameData = {
         name: newFrame.name.trim(),
         style: newFrame.faceType.trim(),
@@ -269,24 +363,14 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
         image_url: (newFrame.imageUrl || '').trim(),
         purchase_link: (newFrame.purchaseLink || '').trim(),
         is_active: Boolean(newFrame.isActive),
-        width_mm: measurements.width || null,
-        height_mm: measurements.height || null,
-        bridge_mm: measurements.bridge || null,
-        temple_mm: measurements.temple || null
+        // Convertir valores vacíos a null para evitar error de tipo integer
+        width_mm: parseMeasurement(measurements.width),
+        height_mm: parseMeasurement(measurements.height),
+        bridge_mm: parseMeasurement(measurements.bridge),
+        temple_mm: parseMeasurement(measurements.temple)
       }
 
       console.log('📤 Datos a enviar al servidor:', frameData);
-      console.log('📤 JSON stringified:', JSON.stringify(frameData));
-
-      // Verificar campos obligatorios
-      if (!frameData.name) {
-        alert("El nombre del marco es obligatorio");
-        return;
-      }
-      if (!frameData.style) {
-        alert("El tipo de rostro es obligatorio");
-        return;
-      }
 
       const response = await fetch('/api/user/frames', {
         method: 'POST',
@@ -297,16 +381,11 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
         body: JSON.stringify(frameData),
       })
 
-      console.log('📡 Response status:', response.status);
-      console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()));
-
-      // Leer la respuesta del servidor
       let responseData;
       try {
         const responseText = await response.text();
         console.log('📡 Response body (raw):', responseText);
 
-        // Intentar parsear como JSON
         if (responseText) {
           responseData = JSON.parse(responseText);
         } else {
@@ -317,42 +396,22 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
         responseData = { success: false, message: 'Error procesando respuesta del servidor' };
       }
 
-      console.log('📡 Response data:', responseData);
-
       if (responseData.success) {
-        // Recargar los marcos desde la API
         await loadFrames(false)
         resetNewFrame()
         setIsAddDialogOpen(false)
+        setCanCloseModal(false)
         alert('Marco agregado correctamente')
       } else {
-        // Mostrar mensaje de error detallado
         let errorMessage = responseData.message || 'Error al agregar marco';
-
-        // Agregar detalles adicionales del error si están disponibles
         if (responseData.errors) {
           errorMessage += '\nErrores: ' + JSON.stringify(responseData.errors);
         }
-        if (responseData.details) {
-          errorMessage += '\nDetalles: ' + JSON.stringify(responseData.details);
-        }
-
-        console.error('❌ Error del servidor:', responseData);
         alert(errorMessage);
       }
     } catch (error: any) {
       console.error('❌ Error adding frame:', error);
-
-      // Mostrar información detallada del error
-      let errorMessage = 'Error al agregar marco. Por favor, intenta de nuevo.';
-
-      if (error.name === 'TypeError' && error.message.includes('fetch')) {
-        errorMessage = 'Error de conexión. Verifica tu conexión a internet.';
-      } else if (error.message) {
-        errorMessage += `\n\nDetalles: ${error.message}`;
-      }
-
-      alert(errorMessage);
+      alert('Error al agregar marco. Por favor, intenta de nuevo.');
     }
   }
 
@@ -367,7 +426,6 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
 
       console.log('🔍 Probando conexión con API...');
 
-      // Primero probar un endpoint simple
       const testResponse = await fetch('/api/user/frames', {
         method: 'GET',
         headers: {
@@ -437,13 +495,31 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
   const handleSaveEdit = async () => {
     if (!editingFrame) return
 
+    // Validar que todas las medidas estén completas
+    if (!editingFrame.measurements || !validateMeasurements(editingFrame.measurements)) {
+      alert("Por favor completa todas las medidas del marco (ancho, alto, puente y temple)")
+      return
+    }
+
+    // Validar que se haya calculado el tipo de rostro
+    if (!editingFrame.faceType) {
+      alert("No se pudo calcular el tipo de rostro. Por favor verifica las medidas.")
+      return
+    }
+
     try {
       const token = localStorage.getItem('auth_token')
 
-      // Obtener medidas del frame en edición (asegurarse de que existan)
+      // Obtener medidas del frame en edición
       const measurements = editingFrame.measurements || DEFAULT_MEASUREMENTS;
 
-      // Preparar datos para la BD
+      // FUNCIÓN AUXILIAR para convertir valores vacíos a null
+      const parseMeasurement = (value: string) => {
+        const num = parseFloat(value);
+        return isNaN(num) ? null : num;
+      };
+
+      // Preparar datos para la BD - CONVERTIR VALORES VACÍOS A null
       const frameData = {
         name: editingFrame.name,
         style: editingFrame.faceType,
@@ -452,10 +528,11 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
         image_url: editingFrame.imageUrl,
         purchase_link: editingFrame.purchaseLink,
         is_active: editingFrame.isActive,
-        width_mm: measurements.width,
-        height_mm: measurements.height,
-        bridge_mm: measurements.bridge,
-        temple_mm: measurements.temple
+        // Convertir valores vacíos a null para evitar error de tipo integer
+        width_mm: parseMeasurement(measurements.width),
+        height_mm: parseMeasurement(measurements.height),
+        bridge_mm: parseMeasurement(measurements.bridge),
+        temple_mm: parseMeasurement(measurements.temple)
       }
 
       const response = await fetch(`/api/user/frames/${editingFrame.id}`, {
@@ -534,6 +611,7 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
       measurements: DEFAULT_MEASUREMENTS
     })
     setImagePreview("")
+    setMeasurementsError("")
   }
 
   // Función para manejar la carga de imagen con Cloudinary
@@ -578,6 +656,24 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
         alert(error.message || 'Error al subir la imagen')
       }
     }
+  }
+
+  // Función para verificar si se puede cerrar el modal
+  const checkIfCanCloseModal = () => {
+    const allMeasurementsFilled = newFrame.measurements ?
+      validateMeasurements(newFrame.measurements) : false
+
+    // Si hay medidas pero no están completas, no permitir cerrar
+    const hasPartialMeasurements = newFrame.measurements &&
+      Object.values(newFrame.measurements).some(val => val !== "")
+
+    if (hasPartialMeasurements && !allMeasurementsFilled) {
+      alert("Por favor completa todas las medidas del marco o elimina los valores ingresados antes de cerrar.")
+      return false
+    }
+
+    setCanCloseModal(true)
+    return true
   }
 
   return (
@@ -642,18 +738,86 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
             </CardContent>
           </Card>
 
+          {/* Tarjeta de Próxima Actualización */}
           <Card className="bg-gray-900/80 backdrop-blur-xl border-gray-800">
             <CardHeader className="pb-3">
               <CardTitle className="text-white flex items-center gap-2 text-lg sm:text-xl">
                 <Calendar className="w-5 h-5 text-orange-400" />
-                Próxima Actualización
+                Estado de Suscripción
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-xl sm:text-2xl font-bold text-orange-400">
-                {userData.subscription?.nextCalibration || "Hoy"}
-              </p>
-              <p className="text-xs sm:text-sm text-gray-400 mt-2">Sincronización de catálogo</p>
+              <div className="space-y-3">
+                <div>
+                  <p className="text-lg sm:text-xl font-bold text-orange-400">
+                    {userData.subscription?.status === "active" ?
+                      (() => {
+                        const daysRemaining = userData.subscription?.daysRemaining || 0;
+                        if (daysRemaining > 0) {
+                          return `En ${daysRemaining} días`;
+                        } else if (daysRemaining === 0) {
+                          return "Hoy";
+                        } else {
+                          return "Vencida";
+                        }
+                      })() :
+                      userData.subscription?.status === "trial" ?
+                        (() => {
+                          const daysRemaining = userData.subscription?.daysRemaining || 0;
+                          return `${daysRemaining} días de prueba`;
+                        })() :
+                        "Inactiva"}
+                  </p>
+                  <Badge className={`mt-2 text-xs ${userData.subscription?.status === "active" ?
+                      "bg-green-500" :
+                      userData.subscription?.status === "trial" ?
+                        "bg-yellow-500" :
+                        "bg-gray-500"
+                    }`}>
+                    {userData.subscription?.status === "active" ?
+                      "Activa" :
+                      userData.subscription?.status === "trial" ?
+                        "Prueba" :
+                        "Inactiva"}
+                  </Badge>
+                </div>
+
+                {userData.subscription?.nextBilling && (
+                  <div className="pt-2 border-t border-gray-700">
+                    <p className="text-xs text-gray-400">Próximo pago:</p>
+                    <p className="text-sm text-white">
+                      {new Date(userData.subscription.nextBilling).toLocaleDateString('es-ES', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric'
+                      })}
+                    </p>
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-gray-700">
+                  <p className="text-xs text-gray-400">Plan actual:</p>
+                  <p className="text-sm text-white font-semibold">
+                    {userData.subscription?.plan === "free" ? "Free" :
+                      userData.subscription?.plan === "basic" ? "Básico" :
+                        userData.subscription?.plan === "pro" ? "Profesional" :
+                          userData.subscription?.plan === "enterprise" ? "Empresarial" :
+                            "Free"}
+                  </p>
+                </div>
+
+                {userData.subscription?.daysRemaining !== undefined && userData.subscription?.daysRemaining <= 7 && (
+                  <div className="mt-3 p-2 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
+                    <p className="text-xs text-yellow-300 text-center">
+                      {userData.subscription.daysRemaining === 0 ?
+                        "⚠️ Tu suscripción vence hoy" :
+                        userData.subscription.daysRemaining < 0 ?
+                          "❌ Tu suscripción ha vencido" :
+                          `⚠️ Tu suscripción vence en ${userData.subscription.daysRemaining} días`}
+                    </p>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -667,7 +831,17 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                 Administra tu catálogo personal de marcos
               </CardDescription>
             </div>
-            <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+            <Dialog open={isAddDialogOpen} onOpenChange={(open) => {
+              if (!open && !canCloseModal) {
+                if (!checkIfCanCloseModal()) {
+                  return
+                }
+              }
+              setIsAddDialogOpen(open)
+              if (!open) {
+                setCanCloseModal(false)
+              }
+            }}>
               <DialogTrigger asChild>
                 <Button className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700">
                   <Plus className="w-4 h-4 mr-2" />
@@ -679,35 +853,15 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                   <DialogTitle className="text-white">Agregar Nuevo Marco</DialogTitle>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="name" className="text-gray-300">Nombre del Marco *</Label>
-                      <Input
-                        id="name"
-                        value={newFrame.name}
-                        onChange={(e) => setNewFrame({ ...newFrame, name: e.target.value })}
-                        className="bg-gray-800 border-gray-700 text-white"
-                        placeholder="Ej: Marco Clásico Negro"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="faceType" className="text-gray-300">Tipo de rostro *</Label>
-                      <Select
-                        value={newFrame.faceType}
-                        onValueChange={(value) => setNewFrame({ ...newFrame, faceType: value })}
-                      >
-                        <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                          <SelectValue placeholder="Selecciona un tipo de rostro" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-gray-800 border-gray-700 text-white">
-                          {FACE_TYPE_OPTIONS.map((option) => (
-                            <SelectItem key={option} value={option}>
-                              {option}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="name" className="text-gray-300">Nombre del Marco *</Label>
+                    <Input
+                      id="name"
+                      value={newFrame.name}
+                      onChange={(e) => setNewFrame({ ...newFrame, name: e.target.value })}
+                      className="bg-gray-800 border-gray-700 text-white"
+                      placeholder="Ej: Marco Clásico Negro"
+                    />
                   </div>
 
                   <div className="space-y-2">
@@ -744,9 +898,12 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                     </div>
                   </div>
 
-                  {/* Medidas - USAR DEFAULT_MEASUREMENTS si es undefined */}
+                  {/* Medidas - SECCIÓN OBLIGATORIA */}
                   <div className="space-y-3">
-                    <Label className="text-gray-300">Medidas (mm)</Label>
+                    <div className="flex items-center justify-between">
+                      <Label className="text-gray-300">Medidas (mm) *</Label>
+                      <span className="text-xs text-gray-500">Completa todas para calcular el tipo de rostro</span>
+                    </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       <div className="space-y-1">
                         <Label className="text-xs text-gray-400">Ancho</Label>
@@ -760,7 +917,7 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                             }
                           })}
                           className="bg-gray-800 border-gray-700 text-white text-sm"
-                          placeholder="140"
+                          placeholder="54-62"
                         />
                       </div>
                       <div className="space-y-1">
@@ -775,7 +932,7 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                             }
                           })}
                           className="bg-gray-800 border-gray-700 text-white text-sm"
-                          placeholder="50"
+                          placeholder="40-50"
                         />
                       </div>
                       <div className="space-y-1">
@@ -790,7 +947,7 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                             }
                           })}
                           className="bg-gray-800 border-gray-700 text-white text-sm"
-                          placeholder="18"
+                          placeholder="14-20"
                         />
                       </div>
                       <div className="space-y-1">
@@ -805,10 +962,31 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                             }
                           })}
                           className="bg-gray-800 border-gray-700 text-white text-sm"
-                          placeholder="145"
+                          placeholder="135-150"
                         />
                       </div>
                     </div>
+                    {measurementsError && (
+                      <p className="text-sm text-red-400">{measurementsError}</p>
+                    )}
+
+                    {/* Tipo de rostro calculado automáticamente */}
+                    {newFrame.faceType && (
+                      <div className="mt-2 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-gray-300">Tipo de rostro calculado:</Label>
+                            <p className="text-lg font-bold text-blue-400">{newFrame.faceType}</p>
+                          </div>
+                          <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+                            Automático
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Basado en las medidas ingresadas: {newFrame.measurements?.width}mm x {newFrame.measurements?.height}mm
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Subida de imagen con Cloudinary */}
@@ -873,13 +1051,24 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setIsAddDialogOpen(false)} className="border-gray-700">
-                    Cancelar
-                  </Button>
+                  <DialogClose asChild>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        if (!checkIfCanCloseModal()) {
+                          return
+                        }
+                        setIsAddDialogOpen(false)
+                      }}
+                      className="border-gray-700"
+                    >
+                      Cancelar
+                    </Button>
+                  </DialogClose>
                   <Button
                     onClick={handleAddFrame}
                     className="bg-gradient-to-r from-blue-500 to-purple-600"
-                    disabled={uploadingImage}
+                    disabled={uploadingImage || !newFrame.faceType || !newFrame.imageUrl}
                   >
                     {uploadingImage ? (
                       <>
@@ -953,7 +1142,12 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                         <div className="flex justify-between items-start mb-2">
                           <div>
                             <h4 className="font-bold text-white text-lg">{frame.name}</h4>
-                            <p className="text-blue-400 text-sm">Tipo: {frame.faceType}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge variant="outline" className="text-blue-400 border-blue-400/30">
+                                {frame.faceType}
+                              </Badge>
+                              <span className="text-xs text-gray-500">Automático</span>
+                            </div>
                           </div>
                           <span className="font-bold text-green-400">{frame.price}</span>
                         </div>
@@ -1089,39 +1283,31 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
 
       {/* Diálogo de Edición */}
       {editingFrame && (
-        <Dialog open={!!editingFrame} onOpenChange={() => setEditingFrame(null)}>
+        <Dialog open={!!editingFrame} onOpenChange={() => {
+          // Validar si hay medidas parciales antes de cerrar
+          if (editingFrame?.measurements) {
+            const allMeasurementsFilled = validateMeasurements(editingFrame.measurements)
+            const hasPartialMeasurements = Object.values(editingFrame.measurements).some(val => val !== "")
+
+            if (hasPartialMeasurements && !allMeasurementsFilled) {
+              alert("Por favor completa todas las medidas del marco antes de cerrar.")
+              return
+            }
+          }
+          setEditingFrame(null)
+        }}>
           <DialogContent className="bg-gray-900 border-gray-800 max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-white">Editar Marco</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 py-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-gray-300">Nombre del Marco</Label>
-                  <Input
-                    value={editingFrame.name}
-                    onChange={(e) => setEditingFrame({ ...editingFrame, name: e.target.value })}
-                    className="bg-gray-800 border-gray-700 text-white"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-gray-300">Tipo de rostro</Label>
-                  <Select
-                    value={editingFrame.faceType}
-                    onValueChange={(value) => setEditingFrame({ ...editingFrame, faceType: value })}
-                  >
-                    <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
-                      <SelectValue placeholder="Selecciona un tipo de rostro" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-gray-800 border-gray-700 text-white">
-                      {FACE_TYPE_OPTIONS.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {option}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="space-y-2">
+                <Label className="text-gray-300">Nombre del Marco</Label>
+                <Input
+                  value={editingFrame.name}
+                  onChange={(e) => setEditingFrame({ ...editingFrame, name: e.target.value })}
+                  className="bg-gray-800 border-gray-700 text-white"
+                />
               </div>
 
               <div className="space-y-2">
@@ -1152,9 +1338,12 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                 </div>
               </div>
 
-              {/* SECCIÓN DE MEDIDAS */}
+              {/* SECCIÓN DE MEDIDAS - OBLIGATORIA */}
               <div className="space-y-3">
-                <Label className="text-gray-300">Medidas (mm)</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-gray-300">Medidas (mm) *</Label>
+                  <span className="text-xs text-gray-500">Completa todas para calcular el tipo de rostro</span>
+                </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="space-y-1">
                     <Label className="text-xs text-gray-400">Ancho</Label>
@@ -1168,7 +1357,7 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                         }
                       })}
                       className="bg-gray-800 border-gray-700 text-white text-sm"
-                      placeholder="140"
+                      placeholder="54-62"
                     />
                   </div>
                   <div className="space-y-1">
@@ -1183,7 +1372,7 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                         }
                       })}
                       className="bg-gray-800 border-gray-700 text-white text-sm"
-                      placeholder="50"
+                      placeholder="40-50"
                     />
                   </div>
                   <div className="space-y-1">
@@ -1198,7 +1387,7 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                         }
                       })}
                       className="bg-gray-800 border-gray-700 text-white text-sm"
-                      placeholder="18"
+                      placeholder="14-20"
                     />
                   </div>
                   <div className="space-y-1">
@@ -1213,10 +1402,28 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                         }
                       })}
                       className="bg-gray-800 border-gray-700 text-white text-sm"
-                      placeholder="145"
+                      placeholder="135-150"
                     />
                   </div>
                 </div>
+
+                {/* Tipo de rostro calculado automáticamente */}
+                {editingFrame.faceType && (
+                  <div className="mt-2 p-3 bg-gray-800/50 rounded-lg border border-gray-700">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <Label className="text-gray-300">Tipo de rostro calculado:</Label>
+                        <p className="text-lg font-bold text-blue-400">{editingFrame.faceType}</p>
+                      </div>
+                      <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+                        Automático
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Basado en las medidas ingresadas: {editingFrame.measurements?.width}mm x {editingFrame.measurements?.height}mm
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Subida de imagen en edición con Cloudinary */}
@@ -1265,7 +1472,11 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
               <Button variant="outline" onClick={() => setEditingFrame(null)} className="border-gray-700">
                 Cancelar
               </Button>
-              <Button onClick={handleSaveEdit} className="bg-gradient-to-r from-blue-500 to-purple-600">
+              <Button
+                onClick={handleSaveEdit}
+                className="bg-gradient-to-r from-blue-500 to-purple-600"
+                disabled={!editingFrame.faceType}
+              >
                 Guardar Cambios
               </Button>
             </DialogFooter>

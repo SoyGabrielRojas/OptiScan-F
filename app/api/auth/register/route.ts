@@ -1,3 +1,4 @@
+// app/api/auth/register/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { SecurityService } from '@/lib/security/auth';
 import { userCRUD } from '@/lib/crud/userCrud';
@@ -34,6 +35,10 @@ export async function POST(request: NextRequest) {
 
     const hashedPassword = await securityService.hashPassword(userData.password);
 
+    // Calcular fecha de próximo pago (30 días para trial free)
+    const nextBillingDate = new Date();
+    nextBillingDate.setDate(nextBillingDate.getDate() + 30);
+
     const newUser = await userCRUD.createUser({
       name: userData.name,
       lastName: userData.lastName,
@@ -41,7 +46,15 @@ export async function POST(request: NextRequest) {
       email: userData.email,
       password: hashedPassword,
       role: 'user',
-      isActive: true
+      isActive: true,
+      subscription: {
+        plan: 'free',
+        status: 'trial',
+        analysisCount: 0,
+        analysisLimit: 5,
+        nextBilling: nextBillingDate.toISOString(),
+        lastPayment: new Date().toISOString()
+      }
     });
 
     const { password, ...userWithoutPassword } = newUser;
@@ -51,7 +64,7 @@ export async function POST(request: NextRequest) {
       success: true,
       token,
       user: userWithoutPassword,
-      message: 'Usuario registrado exitosamente'
+      message: 'Usuario registrado exitosamente. Tienes 30 días de prueba gratuita.'
     });
   } catch (error: any) {
     console.error('Error en registro:', error);

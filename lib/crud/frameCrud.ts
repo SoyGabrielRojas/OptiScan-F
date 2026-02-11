@@ -14,10 +14,10 @@ export interface Frame {
   purchaseLink: string;
   isActive: boolean;
   measurements: {
-    width: string;
-    height: string;
-    bridge: string;
-    temple: string;
+    width: string | null;
+    height: string | null;
+    bridge: string | null;
+    temple: string | null;
   };
   createdAt: Date;
   updatedAt: Date;
@@ -31,12 +31,22 @@ export class FrameCRUD {
     this.securityService = SecurityService.getInstance();
   }
 
+  // Función auxiliar para convertir valores a número o null
+  private parseMeasurement(value: any): number | null {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+    
+    const num = Number(value);
+    return isNaN(num) ? null : num;
+  }
+
   // Crear nuevo marco
   public async createFrame(userId: number, frameData: any): Promise<any> {
     try {
       console.log("🗄️ FrameCRUD.createFrame - Iniciando...");
       console.log("🗄️ userId:", userId);
-      console.log("🗄️ frameData:", frameData);
+      console.log("🗄️ frameData recibido:", frameData);
 
       const {
         name,
@@ -53,44 +63,48 @@ export class FrameCRUD {
       } = frameData;
 
       // Validar datos requeridos
-      if (!name || !style) {
-        throw new Error("Nombre y estilo son campos requeridos");
+      if (!name || name.trim() === '') {
+        throw new Error("El nombre es un campo requerido");
+      }
+
+      if (!style || style.trim() === '') {
+        throw new Error("El estilo/tipo de rostro es un campo requerido");
       }
 
       const query = `
-      INSERT INTO frames (
-        user_id, 
-        name, 
-        style, 
-        description, 
-        price, 
-        image_url, 
-        purchase_link, 
-        is_active,
-        width_mm,
-        height_mm,
-        bridge_mm,
-        temple_mm,
-        created_at, 
-        updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
-      RETURNING *
-    `;
+        INSERT INTO frames (
+          user_id, 
+          name, 
+          style, 
+          description, 
+          price, 
+          image_url, 
+          purchase_link, 
+          is_active,
+          width_mm,
+          height_mm,
+          bridge_mm,
+          temple_mm,
+          created_at, 
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
+        RETURNING *
+      `;
 
       const values = [
         userId,
-        name,
-        style,
+        name.trim(),
+        style.trim(),
         description || null,
         price || null,
         image_url || null,
         purchase_link || null,
         Boolean(is_active),
-        // Convertir strings a números, o null si están vacíos
-        width_mm ? parseInt(width_mm) || null : null,
-        height_mm ? parseInt(height_mm) || null : null,
-        bridge_mm ? parseInt(bridge_mm) || null : null,
-        temple_mm ? parseInt(temple_mm) || null : null,
+        // Usar la función parseMeasurement para manejar valores null
+        this.parseMeasurement(width_mm),
+        this.parseMeasurement(height_mm),
+        this.parseMeasurement(bridge_mm),
+        this.parseMeasurement(temple_mm),
       ];
 
       console.log("🗄️ Query a ejecutar:", query);
@@ -115,66 +129,54 @@ export class FrameCRUD {
       console.error("❌ Restricción:", error.constraint);
       console.error("❌ Stack:", error.stack);
 
-      // Re-lanzar el error para que frameService lo capture
       throw error;
     }
   }
 
   // Obtener marco por ID
   public async getFrameById(id: string): Promise<Frame | null> {
-    const query = `
-      SELECT * FROM frames WHERE id = $1
-    `;
-    const result = await pool.query(query, [id]);
-    if (result.rows.length === 0) {
-      return null;
+    try {
+      const query = `
+        SELECT * FROM frames WHERE id = $1
+      `;
+      const result = await pool.query(query, [parseInt(id)]);
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      const row = result.rows[0];
+      return this.mapRowToFrame(row);
+    } catch (error) {
+      console.error("Error en getFrameById:", error);
+      throw error;
     }
-    const row = result.rows[0];
-    return {
-      id: row.id,
-      userId: row.user_id,
-      name: row.name,
-      style: row.style,
-      description: row.description,
-      price: row.price,
-      imageUrl: row.image_url,
-      purchaseLink: row.purchase_link,
-      isActive: row.is_active,
-      measurements: {
-        width: row.width_mm,
-        height: row.height_mm,
-        bridge: row.bridge_mm,
-        temple: row.temple_mm,
-      },
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
   }
 
   // Obtener marcos por usuario
   public async getFramesByUser(userId: number): Promise<any[]> {
     try {
       const query = `
-      SELECT 
-        id, 
-        user_id, 
-        name, 
-        style, 
-        description, 
-        price, 
-        image_url,
-        purchase_link,
-        is_active,
-        width_mm,
-        height_mm,
-        bridge_mm,
-        temple_mm,
-        created_at, 
-        updated_at
-      FROM frames 
-      WHERE user_id = $1
-      ORDER BY created_at DESC
-    `;
+        SELECT 
+          id, 
+          user_id, 
+          name, 
+          style, 
+          description, 
+          price, 
+          image_url,
+          purchase_link,
+          is_active,
+          width_mm,
+          height_mm,
+          bridge_mm,
+          temple_mm,
+          created_at, 
+          updated_at
+        FROM frames 
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+      `;
 
       const result = await pool.query(query, [userId]);
       console.log(
@@ -188,7 +190,7 @@ export class FrameCRUD {
         );
       }
 
-      return result.rows;
+      return result.rows.map(row => this.mapRowToFrame(row));
     } catch (error) {
       console.error("Error al obtener marcos por usuario:", error);
       throw error;
@@ -197,154 +199,181 @@ export class FrameCRUD {
 
   // Obtener marcos activos por usuario
   public async getActiveFramesByUser(userId: number): Promise<Frame[]> {
-    const query = `
-      SELECT * FROM frames 
-      WHERE user_id = $1 AND is_active = true 
-      ORDER BY created_at DESC
-    `;
-    const result = await pool.query(query, [userId]);
-    return result.rows.map((row) => ({
-      id: row.id,
+    try {
+      const query = `
+        SELECT * FROM frames 
+        WHERE user_id = $1 AND is_active = true 
+        ORDER BY created_at DESC
+      `;
+      const result = await pool.query(query, [userId]);
+      return result.rows.map(row => this.mapRowToFrame(row));
+    } catch (error) {
+      console.error("Error en getActiveFramesByUser:", error);
+      throw error;
+    }
+  }
+
+  // Mapear fila de la base de datos a objeto Frame
+  private mapRowToFrame(row: any): Frame {
+    // Función auxiliar para convertir valores numéricos a string o null
+    const parseMeasurementToString = (value: any): string | null => {
+      if (value === null || value === undefined) {
+        return null;
+      }
+      return String(value);
+    };
+
+    return {
+      id: String(row.id),
       userId: row.user_id,
       name: row.name,
       style: row.style,
-      description: row.description,
-      price: row.price,
-      imageUrl: row.image_url,
-      purchaseLink: row.purchase_link,
+      description: row.description || '',
+      price: row.price || '',
+      imageUrl: row.image_url || '',
+      purchaseLink: row.purchase_link || '',
       isActive: row.is_active,
       measurements: {
-        width: row.width_mm,
-        height: row.height_mm,
-        bridge: row.bridge_mm,
-        temple: row.temple_mm,
+        width: parseMeasurementToString(row.width_mm),
+        height: parseMeasurementToString(row.height_mm),
+        bridge: parseMeasurementToString(row.bridge_mm),
+        temple: parseMeasurementToString(row.temple_mm),
       },
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    }));
+    };
   }
 
   // Actualizar marco
   public async updateFrame(
     id: string,
     userId: number,
-    updateData: Partial<Frame>,
-  ): Promise<Frame | null> {
+    updateData: any,
+  ): Promise<any> {
     const client = await pool.connect();
     try {
+      console.log(`🗄️ FrameCRUD.updateFrame - Iniciando para frame ${id}`);
+      console.log(`🗄️ userId: ${userId}`);
+      console.log(`🗄️ updateData recibido:`, updateData);
+
+      // Validar que el marco exista y pertenezca al usuario
+      const checkQuery = `
+        SELECT id FROM frames WHERE id = $1 AND user_id = $2
+      `;
+      const checkResult = await client.query(checkQuery, [parseInt(id), userId]);
+      
+      if (checkResult.rows.length === 0) {
+        console.log(`❌ Marco ${id} no encontrado o no pertenece al usuario ${userId}`);
+        return null;
+      }
+
       const updates: string[] = [];
       const values: any[] = [];
       let paramIndex = 1;
 
-      if (updateData.name) {
+      // Construir dinámicamente la consulta
+      if (updateData.name !== undefined) {
         updates.push(`name = $${paramIndex}`);
-        values.push(this.securityService.sanitizeInput(updateData.name));
+        values.push(updateData.name.trim());
         paramIndex++;
       }
-      if (updateData.style) {
+      
+      if (updateData.style !== undefined) {
         updates.push(`style = $${paramIndex}`);
-        values.push(this.securityService.sanitizeInput(updateData.style));
+        values.push(updateData.style.trim());
         paramIndex++;
       }
-      if (updateData.description) {
+      
+      if (updateData.description !== undefined) {
         updates.push(`description = $${paramIndex}`);
-        values.push(this.securityService.sanitizeInput(updateData.description));
+        values.push(updateData.description || null);
         paramIndex++;
       }
+      
       if (updateData.price !== undefined) {
         updates.push(`price = $${paramIndex}`);
-        values.push(updateData.price);
+        values.push(updateData.price || null);
         paramIndex++;
       }
-      if (updateData.imageUrl !== undefined) {
+      
+      if (updateData.image_url !== undefined) {
         updates.push(`image_url = $${paramIndex}`);
-        values.push(updateData.imageUrl);
+        values.push(updateData.image_url || null);
         paramIndex++;
       }
-      if (updateData.purchaseLink !== undefined) {
+      
+      if (updateData.purchase_link !== undefined) {
         updates.push(`purchase_link = $${paramIndex}`);
-        values.push(updateData.purchaseLink);
+        values.push(updateData.purchase_link || null);
         paramIndex++;
       }
-      if (updateData.isActive !== undefined) {
+      
+      if (updateData.is_active !== undefined) {
         updates.push(`is_active = $${paramIndex}`);
-        values.push(updateData.isActive);
+        values.push(Boolean(updateData.is_active));
         paramIndex++;
       }
-      if (updateData.measurements) {
-        if (updateData.measurements.width !== undefined) {
-          updates.push(`width_mm = $${paramIndex}`);
-          values.push(updateData.measurements.width);
-          paramIndex++;
-        }
-        if (updateData.measurements.height !== undefined) {
-          updates.push(`height_mm = $${paramIndex}`);
-          values.push(updateData.measurements.height);
-          paramIndex++;
-        }
-        if (updateData.measurements.bridge !== undefined) {
-          updates.push(`bridge_mm = $${paramIndex}`);
-          values.push(updateData.measurements.bridge);
-          paramIndex++;
-        }
-        if (updateData.measurements.temple !== undefined) {
-          updates.push(`temple_mm = $${paramIndex}`);
-          values.push(updateData.measurements.temple);
-          paramIndex++;
-        }
+
+      // Manejar medidas
+      if (updateData.width_mm !== undefined) {
+        updates.push(`width_mm = $${paramIndex}`);
+        values.push(this.parseMeasurement(updateData.width_mm));
+        paramIndex++;
+      }
+      
+      if (updateData.height_mm !== undefined) {
+        updates.push(`height_mm = $${paramIndex}`);
+        values.push(this.parseMeasurement(updateData.height_mm));
+        paramIndex++;
+      }
+      
+      if (updateData.bridge_mm !== undefined) {
+        updates.push(`bridge_mm = $${paramIndex}`);
+        values.push(this.parseMeasurement(updateData.bridge_mm));
+        paramIndex++;
+      }
+      
+      if (updateData.temple_mm !== undefined) {
+        updates.push(`temple_mm = $${paramIndex}`);
+        values.push(this.parseMeasurement(updateData.temple_mm));
+        paramIndex++;
       }
 
       if (updates.length === 0) {
+        console.log("⚠️ No hay campos para actualizar");
         return await this.getFrameById(id);
       }
 
-      updates.push(`updated_at = CURRENT_TIMESTAMP`);
-      values.push(id, userId);
+      // Agregar updated_at
+      updates.push(`updated_at = NOW()`);
+
+      // Agregar condiciones WHERE
+      values.push(parseInt(id), userId);
 
       const query = `
-        SELECT 
-          id, 
-          name, 
-          style, 
-          description, 
-          price, 
-          image_url,
-          purchase_link,
-          is_active,
-          COALESCE(width_mm, '') as width_mm,
-          COALESCE(height_mm, '') as height_mm,
-          COALESCE(bridge_mm, '') as bridge_mm,
-          COALESCE(temple_mm, '') as temple_mm
-        FROM frames 
-        WHERE user_id = $1
+        UPDATE frames 
+        SET ${updates.join(', ')}
+        WHERE id = $${paramIndex} AND user_id = $${paramIndex + 1}
+        RETURNING *
       `;
+
+      console.log("🗄️ Query de actualización:", query);
+      console.log("🗄️ Valores de actualización:", values);
 
       const result = await client.query(query, values);
 
       if (result.rows.length === 0) {
+        console.log(`❌ No se pudo actualizar el marco ${id}`);
         return null;
       }
 
-      const row = result.rows[0];
-      return {
-        id: row.id,
-        userId: row.user_id,
-        name: row.name,
-        style: row.style,
-        description: row.description,
-        price: row.price,
-        imageUrl: row.image_url,
-        purchaseLink: row.purchase_link,
-        isActive: row.is_active,
-        measurements: {
-          width: row.width_mm,
-          height: row.height_mm,
-          bridge: row.bridge_mm,
-          temple: row.temple_mm,
-        },
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      };
+      console.log("✅ FrameCRUD.updateFrame - Marco actualizado exitosamente");
+      return this.mapRowToFrame(result.rows[0]);
+    } catch (error: any) {
+      console.error("❌ Error en FrameCRUD.updateFrame:");
+      console.error("❌ Mensaje:", error.message);
+      console.error("❌ Stack:", error.stack);
+      throw error;
     } finally {
       client.release();
     }
@@ -352,86 +381,65 @@ export class FrameCRUD {
 
   // Eliminar marco
   public async deleteFrame(id: string, userId: number): Promise<boolean> {
-    const query = `
-      DELETE FROM frames 
-      WHERE id = $1 AND user_id = $2
-    `;
-    const result = await pool.query(query, [id, userId]);
-    return result.rowCount > 0;
+    try {
+      const query = `
+        DELETE FROM frames 
+        WHERE id = $1 AND user_id = $2
+        RETURNING id
+      `;
+      const result = await pool.query(query, [parseInt(id), userId]);
+      return result.rowCount !== null && result.rowCount > 0;
+    } catch (error) {
+      console.error("Error en deleteFrame:", error);
+      throw error;
+    }
   }
 
   // Activar/desactivar marco
   public async toggleFrameStatus(
     id: string,
     userId: number,
-  ): Promise<Frame | null> {
-    const query = `
-      UPDATE frames 
-      SET is_active = NOT is_active, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1 AND user_id = $2
-      RETURNING *
-    `;
+  ): Promise<any | null> {
+    try {
+      const query = `
+        UPDATE frames 
+        SET is_active = NOT is_active, updated_at = NOW()
+        WHERE id = $1 AND user_id = $2
+        RETURNING *
+      `;
 
-    const result = await pool.query(query, [id, userId]);
+      const result = await pool.query(query, [parseInt(id), userId]);
 
-    if (result.rows.length === 0) {
-      return null;
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      return this.mapRowToFrame(result.rows[0]);
+    } catch (error) {
+      console.error("Error en toggleFrameStatus:", error);
+      throw error;
     }
-
-    const row = result.rows[0];
-    return {
-      id: row.id,
-      userId: row.user_id,
-      name: row.name,
-      style: row.style,
-      description: row.description,
-      price: row.price,
-      imageUrl: row.image_url,
-      purchaseLink: row.purchase_link,
-      isActive: row.is_active,
-      measurements: {
-        width: row.width_mm,
-        height: row.height_mm,
-        bridge: row.bridge_mm,
-        temple: row.temple_mm,
-      },
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
   }
 
   // Buscar marcos por nombre o estilo
   public async searchFrames(userId: number, query: string): Promise<Frame[]> {
-    const searchQuery = `
-      SELECT * FROM frames 
-      WHERE user_id = $1 AND (
-        LOWER(name) LIKE LOWER($2) OR 
-        LOWER(style) LIKE LOWER($2) OR
-        LOWER(description) LIKE LOWER($2)
-      )
-      ORDER BY created_at DESC
-    `;
+    try {
+      const searchQuery = `
+        SELECT * FROM frames 
+        WHERE user_id = $1 AND (
+          LOWER(name) LIKE LOWER($2) OR 
+          LOWER(style) LIKE LOWER($2) OR
+          LOWER(description) LIKE LOWER($2)
+        )
+        ORDER BY created_at DESC
+      `;
 
-    const result = await pool.query(searchQuery, [userId, `%${query}%`]);
-    return result.rows.map((row) => ({
-      id: row.id,
-      userId: row.user_id,
-      name: row.name,
-      style: row.style,
-      description: row.description,
-      price: row.price,
-      imageUrl: row.image_url,
-      purchaseLink: row.purchase_link,
-      isActive: row.is_active,
-      measurements: {
-        width: row.width_mm,
-        height: row.height_mm,
-        bridge: row.bridge_mm,
-        temple: row.temple_mm,
-      },
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+      const result = await pool.query(searchQuery, [userId, `%${query}%`]);
+      return result.rows.map(row => this.mapRowToFrame(row));
+    } catch (error) {
+      console.error("Error en searchFrames:", error);
+      throw error;
+    }
   }
 
   // Obtener estadísticas de marcos
@@ -440,23 +448,28 @@ export class FrameCRUD {
     activeFrames: number;
     inactiveFrames: number;
   }> {
-    const query = `
-      SELECT 
-        COUNT(*) as total,
-        COUNT(CASE WHEN is_active = true THEN 1 END) as active,
-        COUNT(CASE WHEN is_active = false THEN 1 END) as inactive
-      FROM frames 
-      WHERE user_id = $1
-    `;
+    try {
+      const query = `
+        SELECT 
+          COUNT(*) as total,
+          COUNT(CASE WHEN is_active = true THEN 1 END) as active,
+          COUNT(CASE WHEN is_active = false THEN 1 END) as inactive
+        FROM frames 
+        WHERE user_id = $1
+      `;
 
-    const result = await pool.query(query, [userId]);
-    const row = result.rows[0];
+      const result = await pool.query(query, [userId]);
+      const row = result.rows[0];
 
-    return {
-      totalFrames: parseInt(row.total) || 0,
-      activeFrames: parseInt(row.active) || 0,
-      inactiveFrames: parseInt(row.inactive) || 0,
-    };
+      return {
+        totalFrames: parseInt(row.total) || 0,
+        activeFrames: parseInt(row.active) || 0,
+        inactiveFrames: parseInt(row.inactive) || 0,
+      };
+    } catch (error) {
+      console.error("Error en getFrameStats:", error);
+      throw error;
+    }
   }
 }
 

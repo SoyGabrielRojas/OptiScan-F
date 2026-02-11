@@ -1,51 +1,3 @@
-// import { NextRequest, NextResponse } from 'next/server';
-// import { authService } from '@/lib/services/authService';
-// import { frameService } from '@/lib/services/frameService';
-
-// // GET: Obtener todos los marcos del usuario
-// export async function GET(request: NextRequest) {
-//   try {
-//     const session = await authService.verifySession();
-//     if (!session.success || !session.user) {
-//       return NextResponse.json({ success: false, message: 'No autorizado' }, { status: 401 });
-//     }
-
-//     const result = await frameService.getUserFrames(session.user.id);
-//     return NextResponse.json(result);
-//   } catch (error) {
-//     console.error('Error en GET /api/user/frames:', error);
-//     return NextResponse.json(
-//       { success: false, message: 'Error interno del servidor' },
-//       { status: 500 }
-//     );
-//   }
-// }
-
-// // POST: Crear un nuevo marco
-// export async function POST(request: NextRequest) {
-//   try {
-//     const session = await authService.verifySession();
-//     if (!session.success || !session.user) {
-//       return NextResponse.json({ success: false, message: 'No autorizado' }, { status: 401 });
-//     }
-
-//     const frameData = await request.json();
-//     const result = await frameService.createFrame(session.user.id, frameData);
-    
-//     if (!result.success) {
-//       return NextResponse.json(result, { status: 400 });
-//     }
-    
-//     return NextResponse.json(result);
-//   } catch (error) {
-//     console.error('Error en POST /api/user/frames:', error);
-//     return NextResponse.json(
-//       { success: false, message: 'Error interno del servidor' },
-//       { status: 500 }
-//     );
-//   }
-// }
-
 import { NextRequest, NextResponse } from 'next/server';
 import { authService } from '@/lib/services/authService';
 import { frameService } from '@/lib/services/frameService';
@@ -135,11 +87,31 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
+    // NUEVO: Función para limpiar y convertir valores de medidas
+    const cleanMeasurementValue = (value: any): number | null => {
+      if (value === null || value === undefined || value === '') {
+        return null;
+      }
+      const num = Number(value);
+      return isNaN(num) ? null : num;
+    };
+
+    // NUEVO: Limpiar los valores de medidas antes de enviar al servicio
+    const cleanedFrameData = {
+      ...frameData,
+      width_mm: cleanMeasurementValue(frameData.width_mm),
+      height_mm: cleanMeasurementValue(frameData.height_mm),
+      bridge_mm: cleanMeasurementValue(frameData.bridge_mm),
+      temple_mm: cleanMeasurementValue(frameData.temple_mm)
+    };
+
+    console.log('🧹 Datos limpiados para crear marco:', cleanedFrameData);
+
     // Validar datos mínimos
-    if (!frameData.name || !frameData.style) {
+    if (!cleanedFrameData.name || !cleanedFrameData.style) {
       console.log('❌ Faltan campos obligatorios:', { 
-        name: frameData.name, 
-        style: frameData.style 
+        name: cleanedFrameData.name, 
+        style: cleanedFrameData.style 
       });
       return NextResponse.json({ 
         success: false, 
@@ -147,7 +119,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const result = await frameService.createFrame(session.user.id, frameData);
+    const result = await frameService.createFrame(session.user.id, cleanedFrameData);
     
     if (!result.success) {
       console.log('❌ Error al crear marco:', result.message);
