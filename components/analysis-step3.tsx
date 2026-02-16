@@ -1,12 +1,13 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { CheckCircle, RotateCcw, Ruler, Palette, Download, ExternalLink, Eye, ShoppingBag } from "lucide-react"
+import { CheckCircle, RotateCcw, Ruler, Palette, Eye, ShoppingBag, ExternalLink, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
 
-// Tipos actualizados
+// Tipos para los marcos del catálogo (userFrames)
 interface Frame {
   id: string
   name: string
@@ -24,6 +25,7 @@ interface Frame {
   }
 }
 
+// Datos provenientes del backend (analyzeImage)
 interface FaceAnalysis {
   faceShape: string
   skinTone: string
@@ -31,21 +33,35 @@ interface FaceAnalysis {
     faceWidth: string
     faceHeight: string
     eyeDistance: string
-    eyeHeight: string
+    // eyeHeight eliminado
   }
+  skinToneDetails?: any // objeto completo de tono_piel para colores
 }
 
 interface AnalysisStep3Props {
   faceAnalysis: FaceAnalysis
   onNewAnalysis: () => void
   onGoToDashboard?: () => void
-  userFrames?: Frame[] // Marcos del usuario
+  userFrames?: Frame[]
+  onGeneratePDF: () => void
+  isGeneratingPDF: boolean
+  showDownloadProgress: boolean
+  pdfDownloadProgress: number
 }
 
-export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, userFrames = [] }: AnalysisStep3Props) {
+export function AnalysisStep3({
+  faceAnalysis,
+  onNewAnalysis,
+  onGoToDashboard,
+  userFrames = [],
+  onGeneratePDF,
+  isGeneratingPDF,
+  showDownloadProgress,
+  pdfDownloadProgress,
+}: AnalysisStep3Props) {
   const [recommendedFrames, setRecommendedFrames] = useState<Frame[]>([])
 
-  // Usamos useMemo para memoizar los frames por defecto
+  // Marcos por defecto (usados si no hay userFrames)
   const defaultFrames = useMemo(() => [
     {
       id: "default-1",
@@ -95,70 +111,51 @@ export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, us
         temple: "148mm"
       }
     }
-  ], [faceAnalysis.faceShape]) // Solo se recrea cuando cambia faceShape
+  ], [faceAnalysis.faceShape])
 
-  // Filtramos solo los marcos activos para mostrar
+  // Actualizar marcos recomendados (prioridad a userFrames)
   useEffect(() => {
     const activeFrames = userFrames.filter(frame => frame.isActive)
+    setRecommendedFrames(activeFrames.length > 0 ? activeFrames : defaultFrames)
+  }, [userFrames, defaultFrames])
 
-    // Si hay marcos activos del usuario, los usamos
-    // Si no, mostramos marcos por defecto basados en el análisis
-    if (activeFrames.length > 0) {
-      setRecommendedFrames(activeFrames)
-    } else {
-      setRecommendedFrames(defaultFrames)
-    }
-  }, [userFrames, defaultFrames]) // Agregamos defaultFrames a las dependencias
-
+  // Medidas del rostro (reales del backend) - solo tres
   const measurements = [
-    {
-      label: "Ancho de Rostro",
-      value: faceAnalysis?.measurements?.faceWidth || "No disponible",
-      icon: Ruler
-    },
-    {
-      label: "Alto de Rostro",
-      value: faceAnalysis?.measurements?.faceHeight || "No disponible",
-      icon: Ruler
-    },
-    {
-      label: "Distancia entre Ojos",
-      value: faceAnalysis?.measurements?.eyeDistance || "No disponible",
-      icon: Eye
-    },
-    {
-      label: "Alto de Ojos",
-      value: faceAnalysis?.measurements?.eyeHeight || "No disponible",
-      icon: Eye
-    },
+    { label: "Ancho de Rostro", value: faceAnalysis.measurements.faceWidth, icon: Ruler },
+    { label: "Alto de Rostro", value: faceAnalysis.measurements.faceHeight, icon: Ruler },
+    { label: "Distancia entre Ojos", value: faceAnalysis.measurements.eyeDistance, icon: Eye },
   ]
 
-  const recommendedColors = [
-    { name: "Negro Clásico", hex: "#000000", description: "Elegante y versátil" },
-    { name: "Gris Plata", hex: "#C0C0C0", description: "Refinado y contemporáneo" },
-  ]
+  // Colores recomendados (desde skinToneDetails o fallback)
+  const recommendedColors = useMemo(() => {
+    const tono = faceAnalysis.skinToneDetails
+    if (tono?.recomendaciones?.colores_recomendados) {
+      return tono.recomendaciones.colores_recomendados.map((c: any) => ({
+        name: c.nombre,
+        hex: c.hex,
+        description: c.descripcion,
+      }))
+    }
+    // Fallback
+    return [
+      { name: "Negro Clásico", hex: "#000000", description: "Elegante y versátil" },
+      { name: "Gris Plata", hex: "#C0C0C0", description: "Refinado y contemporáneo" },
+    ]
+  }, [faceAnalysis.skinToneDetails])
 
-  // Calcular compatibilidad basada en medidas (ejemplo simple)
+  // Calcular compatibilidad (ejemplo simple)
   const calculateCompatibility = (frame: Frame) => {
     const frameWidth = parseInt(frame.measurements.width.replace('mm', '')) || 140
-    const faceWidth = parseFloat(faceAnalysis?.measurements?.faceWidth?.replace(' cm', '') || "18.5") * 10 // Convertir cm a mm
-
-    // Ejemplo simple: más cercano al ancho del rostro, mayor compatibilidad
+    const faceWidth = parseFloat(faceAnalysis?.measurements?.faceWidth?.replace(' cm', '') || "18.5") * 10
     const diff = Math.abs(frameWidth - faceWidth)
     let compatibility = 100 - (diff * 2)
-
-    // Asegurar que esté entre 70% y 95%
     compatibility = Math.max(70, Math.min(95, compatibility))
-
     return Math.round(compatibility)
-  }
-
-  const downloadPDF = () => {
-    alert("Descargando PDF del análisis completo...")
   }
 
   return (
     <div className="min-h-screen w-full relative overflow-hidden">
+      {/* Fondo decorativo */}
       <div className="fixed inset-0 bg-gradient-to-br from-gray-950 via-blue-950 to-purple-950 -z-10">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,_rgba(59,130,246,0.1),transparent_50%)]"></div>
         <div className="absolute top-0 -left-4 w-96 h-96 bg-blue-500/20 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
@@ -168,6 +165,7 @@ export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, us
 
       <div className="relative z-10 p-4 sm:p-6 md:p-8 lg:p-10">
         <div className="max-w-7xl mx-auto">
+          {/* Encabezado */}
           <div className="text-center mb-6 sm:mb-8 md:mb-10">
             <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 mb-4 sm:mb-6 animate-bounce">
               <CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
@@ -183,31 +181,28 @@ export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, us
             </p>
           </div>
 
-          {/* Medidas Faciales */}
+          {/* Medidas Faciales - ahora 3 columnas */}
           <Card className="mb-6 sm:mb-8 bg-gray-900/80 backdrop-blur-xl border-gray-800">
             <CardContent className="p-4 sm:p-6 md:p-8">
               <h3 className="text-xl sm:text-2xl font-bold text-white mb-4 sm:mb-6 flex items-center gap-2">
                 <Ruler className="w-5 h-5 sm:w-6 sm:h-6 text-blue-400" />
                 Medidas Faciales Detectadas
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
-                {measurements.map((measurement, index) => (
-                  <div
-                    key={index}
-                    className="bg-gray-800/50 p-4 sm:p-5 rounded-lg border border-gray-700 hover:border-blue-500/50 transition-all"
-                  >
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 md:gap-6">
+                {measurements.map((m, idx) => (
+                  <div key={idx} className="bg-gray-800/50 p-4 sm:p-5 rounded-lg border border-gray-700 hover:border-blue-500/50 transition-all">
                     <div className="flex items-center gap-2 mb-2">
-                      <measurement.icon className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400" />
-                      <p className="text-xs sm:text-sm text-gray-400">{measurement.label}</p>
+                      <m.icon className="w-4 h-4 sm:w-5 sm:h-5 text-blue-400" />
+                      <p className="text-xs sm:text-sm text-gray-400">{m.label}</p>
                     </div>
-                    <p className="text-xl sm:text-2xl font-bold text-white">{measurement.value}</p>
+                    <p className="text-xl sm:text-2xl font-bold text-white">{m.value}</p>
                   </div>
                 ))}
               </div>
             </CardContent>
           </Card>
 
-          {/* Análisis de Estructura */}
+          {/* Análisis de Estructura Facial */}
           <Card className="mb-6 sm:mb-8 bg-gray-900/80 backdrop-blur-xl border-gray-800">
             <CardContent className="p-4 sm:p-6 md:p-8">
               <h3 className="text-xl sm:text-2xl font-bold text-white mb-4 sm:mb-6 flex items-center gap-2">
@@ -241,15 +236,12 @@ export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, us
                 Colores de Marco Recomendados
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 md:gap-6">
-                {recommendedColors.map((color, index) => (
-                  <div
-                    key={index}
-                    className="bg-gray-800/50 p-4 sm:p-5 rounded-lg border border-gray-700 hover:border-pink-500/50 transition-all cursor-pointer group"
-                  >
+                {recommendedColors.map((color, idx) => (
+                  <div key={idx} className="bg-gray-800/50 p-4 sm:p-5 rounded-lg border border-gray-700 hover:border-pink-500/50 transition-all cursor-pointer group">
                     <div
                       className="w-full h-16 sm:h-20 rounded-lg mb-3 sm:mb-4 transition-transform group-hover:scale-105"
                       style={{ backgroundColor: color.hex }}
-                    ></div>
+                    />
                     <p className="text-sm sm:text-base font-bold text-white mb-1">{color.name}</p>
                     <p className="text-xs sm:text-sm text-gray-400">{color.description}</p>
                   </div>
@@ -258,7 +250,7 @@ export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, us
             </CardContent>
           </Card>
 
-          {/* Marcos Recomendados */}
+          {/* Marcos Recomendados (desde userFrames o defaults) */}
           <Card className="mb-6 sm:mb-8 bg-gray-900/80 backdrop-blur-xl border-gray-800">
             <CardContent className="p-4 sm:p-6 md:p-8">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6">
@@ -273,12 +265,8 @@ export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, us
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
                 {recommendedFrames.map((frame) => {
                   const compatibility = calculateCompatibility(frame)
-
                   return (
-                    <div
-                      key={frame.id}
-                      className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden hover:border-blue-500/50 transition-all hover:scale-105 group"
-                    >
+                    <div key={frame.id} className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden hover:border-blue-500/50 transition-all hover:scale-105 group">
                       <div className="relative aspect-video bg-gray-900">
                         <img
                           src={frame.imageUrl || `/placeholder.svg?height=300&width=400&text=${frame.name}`}
@@ -294,10 +282,8 @@ export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, us
                           <h4 className="text-lg sm:text-xl font-bold text-white">{frame.name}</h4>
                           <span className="font-bold text-green-400 text-sm sm:text-base">{frame.price}</span>
                         </div>
-
                         <p className="text-xs sm:text-sm text-blue-400 mb-2 sm:mb-3">{frame.style}</p>
                         <p className="text-xs sm:text-sm text-gray-300 mb-4 line-clamp-2">{frame.description}</p>
-
                         {/* Medidas del marco */}
                         <div className="grid grid-cols-4 gap-1 mb-4">
                           <div className="text-center">
@@ -317,7 +303,6 @@ export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, us
                             <p className="text-white text-xs font-semibold">{frame.measurements.temple}</p>
                           </div>
                         </div>
-
                         <div className="flex flex-col sm:flex-row gap-2">
                           <Button
                             className="flex-1 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-sm sm:text-base"
@@ -344,11 +329,7 @@ export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, us
 
               {onGoToDashboard && (
                 <div className="mt-6 text-center">
-                  <Button
-                    variant="outline"
-                    className="border-blue-500 text-blue-400 hover:bg-blue-500/10"
-                    onClick={onGoToDashboard}
-                  >
+                  <Button variant="outline" className="border-blue-500 text-blue-400 hover:bg-blue-500/10" onClick={onGoToDashboard}>
                     Ir al Dashboard
                   </Button>
                 </div>
@@ -356,16 +337,25 @@ export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, us
             </CardContent>
           </Card>
 
-          {/* Botones de acción */}
+          {/* Botones de acción con PDF */}
           <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center">
             <Button
-              onClick={downloadPDF}
+              onClick={onGeneratePDF}
+              disabled={isGeneratingPDF}
               size="lg"
               className="w-full sm:w-auto bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-base sm:text-lg font-semibold px-6 sm:px-8 h-12 sm:h-14"
             >
               <Download className="w-5 h-5 mr-2" />
-              Descargar PDF Completo
+              {isGeneratingPDF ? "Generando..." : "Descargar Análisis Completo PDF"}
             </Button>
+
+            {showDownloadProgress && (
+              <div className="w-full sm:w-64 flex items-center gap-2">
+                <Progress value={pdfDownloadProgress} className="h-2" />
+                <span className="text-sm text-gray-300">{pdfDownloadProgress}%</span>
+              </div>
+            )}
+
             <Button
               onClick={onNewAnalysis}
               size="lg"
@@ -378,6 +368,6 @@ export function AnalysisStep3({ faceAnalysis, onNewAnalysis, onGoToDashboard, us
           </div>
         </div>
       </div>
-    </div >
+    </div>
   )
 }

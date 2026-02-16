@@ -26,6 +26,12 @@ export default function OptiScan() {
   const [showPayment, setShowPayment] = useState(false)
   const [showSupportModal, setShowSupportModal] = useState(false)
 
+  // Estados para el back
+  const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false)
+  const [showDownloadProgress, setShowDownloadProgress] = useState(false)
+  const [pdfDownloadProgress, setPdfDownloadProgress] = useState(0)
+
   const [selectedPlan, setSelectedPlan] = useState<{
     name: string
     months: number
@@ -67,7 +73,15 @@ export default function OptiScan() {
       reason: string
       image: string
       confidence: number
+      opticalFit?: any
     }>,
+    measurements: {
+      faceWidth: "",
+      faceHeight: "",
+      eyeDistance: "",
+      eyeHeight: "",
+    },
+    skinToneDetails: null as any,
   })
 
   const [browserSupport, setBrowserSupport] = useState({
@@ -211,7 +225,6 @@ export default function OptiScan() {
   const startAnalysis = () => {
     if (!userData) return
 
-    // Verificar límite de análisis
     if (userData.subscription && userData.subscription.analysisLimit) {
       if (userData.subscription.analysisCount >= userData.subscription.analysisLimit) {
         alert(`Has alcanzado el límite de ${userData.subscription.analysisLimit} análisis. Por favor, actualiza tu plan.`)
@@ -230,6 +243,13 @@ export default function OptiScan() {
       faceShape: "",
       skinTone: "",
       recommendations: [],
+      measurements: {
+        faceWidth: "",
+        faceHeight: "",
+        eyeDistance: "",
+        eyeHeight: "",
+      },
+      skinToneDetails: null,
     })
   }
 
@@ -250,66 +270,77 @@ export default function OptiScan() {
   }
 
   const requestCameraPermission = () => {
-    setCurrentStep(2) // Solo avanza al paso 2, la cámara se inicia en AnalysisStep2
+    setCurrentStep(2)
   }
 
-  const handleContinueToAnalysis = () => {
-    if (!userData) return
+  const analyzeImage = async () => {
+    if (!capturedImage || !userData) return
 
     setIsAnalyzing(true)
     setScanningAnimation(true)
+    setAnalysisProgress(0)
 
-    let progress = 0
-    const analysisInterval = setInterval(() => {
-      progress += Math.random() * 10 + 5
-      if (progress >= 100) {
-        progress = 100
-        clearInterval(analysisInterval)
-        setIsAnalyzing(false)
-        setAnalysisComplete(true)
-        setScanningAnimation(false)
-        setCurrentStep(3)
+    const progressInterval = setInterval(() => {
+      setAnalysisProgress(prev => Math.min(prev + Math.random() * 10 + 5, 90))
+    }, 300)
+
+    try {
+      const response = await fetch('http://localhost:5000/analyze-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: capturedImage })
+      })
+
+      const result = await response.json()
+      clearInterval(progressInterval)
+      setAnalysisProgress(100)
+
+      if (result.success && result.data) {
+        const data = result.data
+
+        const formaData = data.forma_rostro || {}
+        const tonoData = data.tono_piel || {}
+
+        const medidasConvertidas = formaData.medidas_convertidas || {}
+        const medidasCm = medidasConvertidas.medidas_cm || {}
+        const medidasOptometria = medidasConvertidas.medidas_optometria || {}
+
+        const measurements = {
+          faceWidth: medidasCm.B_cm ? `${medidasCm.B_cm.toFixed(1)} cm` : 'N/A',
+          faceHeight: medidasCm.A_cm ? `${medidasCm.A_cm.toFixed(1)} cm` : 'N/A',
+          eyeDistance: medidasOptometria.DIP_cm ? `${medidasOptometria.DIP_cm.toFixed(1)} cm` : 'N/A',
+          eyeHeight: medidasOptometria.altura_visual ? `${medidasOptometria.altura_visual} mm` : 'N/A',
+        }
+
+        const recomendaciones = (formaData.recomendaciones || []).map((rec: any) => ({
+          name: rec.name,
+          style: rec.style,
+          reason: rec.reason,
+          image: rec.image_data || rec.image_url || '/placeholder-frame.jpg',
+          confidence: rec.confidence,
+          opticalFit: rec.optical_fit
+        }))
 
         setFaceAnalysis({
-          faceShape: "Ovalado",
-          skinTone: "Tono Cálido",
-          recommendations: [
-            {
-              name: "Aviador Clásico",
-              style: "Metálico",
-              reason: "Complementa la forma ovalada de tu rostro",
-              image: "/aviator-titanium-glasses.jpg",
-              confidence: 92,
-            },
-            {
-              name: "Mariposa Moderna",
-              style: "Acetato",
-              reason: "El diseño pronunciado realza tus rasgos faciales",
-              image: "/executive-glasses-frames.jpg",
-              confidence: 88,
-            },
-            {
-              name: "Rectangular Delgado",
-              style: "Titanio",
-              reason: "Contrasta suavemente con la forma ovalada, aportando definición",
-              image: "/round-vintage-glasses.png",
-              confidence: 85,
-            },
-          ],
+          faceShape: formaData.forma || 'No detectado',
+          skinTone: tonoData.clasificacion?.categoria || 'No detectado',
+          recommendations: recomendaciones,
+          measurements: measurements,
+          skinToneDetails: tonoData,
         })
 
-        // Incrementar contador de análisis en la base de datos
-        authService.incrementUserAnalysis(userData.id).then(result => {
-          if (result.success) {
-            console.log("Análisis registrado en BD:", result.message)
-          } else {
-            console.warn("No se pudo registrar análisis en BD:", result.message)
+        setAnalysisComplete(true)
+        setCurrentStep(3)
+
+        try {
+          const incrementResult = await authService.incrementUserAnalysis(userData.id)
+          if (incrementResult.success) {
+            console.log("Análisis registrado en BD")
           }
-        }).catch(error => {
+        } catch (error) {
           console.error("Error al registrar análisis:", error)
-        })
+        }
 
-        // Actualizar datos del usuario localmente
         setUserData(prev => {
           if (!prev || !prev.subscription) return prev
           return {
@@ -320,9 +351,66 @@ export default function OptiScan() {
             }
           }
         })
+      } else {
+        alert('Error en el análisis: ' + (result.error || 'Error desconocido'))
       }
-      setAnalysisProgress(progress)
-    }, 300)
+    } catch (error) {
+      console.error('Error conectando con el backend:', error)
+      alert('Error de conexión con el servidor')
+    } finally {
+      setIsAnalyzing(false)
+      setScanningAnimation(false)
+    }
+  }
+
+  const generatePDFReport = async () => {
+    if (!capturedImage) return
+
+    setIsGeneratingPDF(true)
+    setShowDownloadProgress(true)
+    setPdfDownloadProgress(0)
+
+    const progressInterval = setInterval(() => {
+      setPdfDownloadProgress(prev => {
+        if (prev >= 85) {
+          clearInterval(progressInterval)
+          return 85
+        }
+        return prev + 5
+      })
+    }, 200)
+
+    try {
+      const response = await fetch('http://localhost:5001/generate-pdf-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: capturedImage })
+      })
+
+      clearInterval(progressInterval)
+      setPdfDownloadProgress(100)
+
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'analisis_facial_optiscan.pdf'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        window.URL.revokeObjectURL(url)
+      } else {
+        alert('Error al generar el PDF')
+      }
+    } catch (error) {
+      console.error('Error en generación de PDF:', error)
+      alert('Error de conexión con el servidor de PDF')
+    } finally {
+      setIsGeneratingPDF(false)
+      setShowDownloadProgress(false)
+      setPdfDownloadProgress(0)
+    }
   }
 
   const resetAnalysis = () => {
@@ -343,6 +431,13 @@ export default function OptiScan() {
       faceShape: "",
       skinTone: "",
       recommendations: [],
+      measurements: {
+        faceWidth: "",
+        faceHeight: "",
+        eyeDistance: "",
+        eyeHeight: "",
+      },
+      skinToneDetails: null,
     })
   }
 
@@ -453,30 +548,28 @@ export default function OptiScan() {
           {currentStep === 2 && (
             <AnalysisStep2
               videoRef={videoRef}
-              onContinue={handleContinueToAnalysis}
               isAnalyzing={isAnalyzing}
               analysisProgress={analysisProgress}
               scanningAnimation={scanningAnimation}
+              onAnalyze={analyzeImage}
+              capturedImage={capturedImage}
+              onImageCapture={setCapturedImage}
             />
           )}
 
           {currentStep === 3 && (
             <AnalysisStep3
-              faceAnalysis={{
-                ...faceAnalysis,
-                measurements: {
-                  faceWidth: "18.5 cm",
-                  faceHeight: "22.0 cm",
-                  eyeDistance: "6.5 cm",
-                  eyeHeight: "3.2 cm"
-                }
-              }}
+              faceAnalysis={faceAnalysis}
               onNewAnalysis={() => {
                 resetAnalysis()
                 startAnalysis()
               }}
               onGoToDashboard={goToDashboard}
               userFrames={[]}
+              onGeneratePDF={generatePDFReport}
+              isGeneratingPDF={isGeneratingPDF}
+              showDownloadProgress={showDownloadProgress}
+              pdfDownloadProgress={pdfDownloadProgress}
             />
           )}
         </>
