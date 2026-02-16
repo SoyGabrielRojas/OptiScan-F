@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { CheckCircle, RotateCcw, Ruler, Palette, Eye, ShoppingBag, ExternalLink, Download } from "lucide-react"
+import { CheckCircle, RotateCcw, Ruler, Palette, Eye, ShoppingBag, ExternalLink, Download, PlusCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -33,9 +33,8 @@ interface FaceAnalysis {
     faceWidth: string
     faceHeight: string
     eyeDistance: string
-    // eyeHeight eliminado
   }
-  skinToneDetails?: any // objeto completo de tono_piel para colores
+  skinToneDetails?: any
 }
 
 interface AnalysisStep3Props {
@@ -60,8 +59,10 @@ export function AnalysisStep3({
   pdfDownloadProgress,
 }: AnalysisStep3Props) {
   const [recommendedFrames, setRecommendedFrames] = useState<Frame[]>([])
+  const [hasUserFrames, setHasUserFrames] = useState(false)
+  const [hasMatchingFrames, setHasMatchingFrames] = useState(false)
 
-  // Marcos por defecto (usados si no hay userFrames)
+  // Marcos por defecto (usados solo si el usuario no tiene ningún marco)
   const defaultFrames = useMemo(() => [
     {
       id: "default-1",
@@ -113,11 +114,27 @@ export function AnalysisStep3({
     }
   ], [faceAnalysis.faceShape])
 
-  // Actualizar marcos recomendados (prioridad a userFrames)
+  // Filtrar marcos del usuario activos que coincidan con el tipo de rostro detectado
   useEffect(() => {
-    const activeFrames = userFrames.filter(frame => frame.isActive)
-    setRecommendedFrames(activeFrames.length > 0 ? activeFrames : defaultFrames)
-  }, [userFrames, defaultFrames])
+    // Primero, verificar si hay marcos de usuario
+    const hasAnyUserFrames = userFrames.length > 0
+    setHasUserFrames(hasAnyUserFrames)
+
+    if (hasAnyUserFrames) {
+      // Filtrar marcos activos cuyo estilo coincida con el tipo de rostro (ignorando mayúsculas)
+      const matchingFrames = userFrames.filter(frame => 
+        frame.isActive && 
+        frame.style.toLowerCase() === faceAnalysis.faceShape.toLowerCase()
+      )
+      
+      setHasMatchingFrames(matchingFrames.length > 0)
+      setRecommendedFrames(matchingFrames)
+    } else {
+      // Si no hay marcos de usuario, usar los por defecto
+      setHasMatchingFrames(true) // consideramos que los default siempre coinciden
+      setRecommendedFrames(defaultFrames)
+    }
+  }, [userFrames, faceAnalysis.faceShape, defaultFrames])
 
   // Medidas del rostro (reales del backend) - solo tres
   const measurements = [
@@ -155,7 +172,7 @@ export function AnalysisStep3({
 
   return (
     <div className="min-h-screen w-full relative overflow-hidden">
-      {/* Fondo decorativo */}
+      {/* Fondo decorativo (igual) */}
       <div className="fixed inset-0 bg-gradient-to-br from-gray-950 via-blue-950 to-purple-950 -z-10">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,_rgba(59,130,246,0.1),transparent_50%)]"></div>
         <div className="absolute top-0 -left-4 w-96 h-96 bg-blue-500/20 rounded-full mix-blend-multiply filter blur-3xl animate-blob"></div>
@@ -174,14 +191,14 @@ export function AnalysisStep3({
               ¡Análisis Completo!
             </h2>
             <p className="text-base sm:text-lg md:text-xl text-gray-300">
-              {userFrames.length > 0
-                ? "Hemos encontrado los marcos perfectos de tu catálogo personal"
+              {hasUserFrames
+                ? "Estos son los marcos de tu catálogo que mejor se adaptan a tu rostro"
                 : "Hemos encontrado los marcos perfectos para ti"
               }
             </p>
           </div>
 
-          {/* Medidas Faciales - ahora 3 columnas */}
+          {/* Medidas Faciales */}
           <Card className="mb-6 sm:mb-8 bg-gray-900/80 backdrop-blur-xl border-gray-800">
             <CardContent className="p-4 sm:p-6 md:p-8">
               <h3 className="text-xl sm:text-2xl font-bold text-white mb-4 sm:mb-6 flex items-center gap-2">
@@ -250,89 +267,131 @@ export function AnalysisStep3({
             </CardContent>
           </Card>
 
-          {/* Marcos Recomendados (desde userFrames o defaults) */}
+          {/* Marcos Recomendados */}
           <Card className="mb-6 sm:mb-8 bg-gray-900/80 backdrop-blur-xl border-gray-800">
             <CardContent className="p-4 sm:p-6 md:p-8">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6">
                 <h3 className="text-xl sm:text-2xl font-bold text-white">Marcos Recomendados</h3>
-                {userFrames.length > 0 && (
+                {hasUserFrames && hasMatchingFrames && (
                   <Badge variant="outline" className="mt-2 sm:mt-0 border-blue-500 text-blue-400">
-                    Personalizados de tu catálogo
+                    De tu catálogo personal
+                  </Badge>
+                )}
+                {!hasUserFrames && (
+                  <Badge variant="outline" className="mt-2 sm:mt-0 border-yellow-500 text-yellow-400">
+                    Recomendaciones generales
                   </Badge>
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
-                {recommendedFrames.map((frame) => {
-                  const compatibility = calculateCompatibility(frame)
-                  return (
-                    <div key={frame.id} className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden hover:border-blue-500/50 transition-all hover:scale-105 group">
-                      <div className="relative aspect-video bg-gray-900">
-                        <img
-                          src={frame.imageUrl || `/placeholder.svg?height=300&width=400&text=${frame.name}`}
-                          alt={frame.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        />
-                        <Badge className="absolute top-2 right-2 sm:top-3 sm:right-3 bg-green-500/90 text-white text-xs sm:text-sm">
-                          {compatibility}% Compatible
-                        </Badge>
-                      </div>
-                      <div className="p-4 sm:p-5 md:p-6">
-                        <div className="flex justify-between items-start mb-2">
-                          <h4 className="text-lg sm:text-xl font-bold text-white">{frame.name}</h4>
-                          <span className="font-bold text-green-400 text-sm sm:text-base">{frame.price}</span>
-                        </div>
-                        <p className="text-xs sm:text-sm text-blue-400 mb-2 sm:mb-3">{frame.style}</p>
-                        <p className="text-xs sm:text-sm text-gray-300 mb-4 line-clamp-2">{frame.description}</p>
-                        {/* Medidas del marco */}
-                        <div className="grid grid-cols-4 gap-1 mb-4">
-                          <div className="text-center">
-                            <p className="text-xs text-gray-400">Ancho</p>
-                            <p className="text-white text-xs font-semibold">{frame.measurements.width}</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-xs text-gray-400">Alto</p>
-                            <p className="text-white text-xs font-semibold">{frame.measurements.height}</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-xs text-gray-400">Puente</p>
-                            <p className="text-white text-xs font-semibold">{frame.measurements.bridge}</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-xs text-gray-400">Temple</p>
-                            <p className="text-white text-xs font-semibold">{frame.measurements.temple}</p>
-                          </div>
-                        </div>
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <Button
-                            className="flex-1 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-sm sm:text-base"
-                            size="sm"
-                            onClick={() => window.open(frame.purchaseLink, '_blank')}
-                          >
-                            <ShoppingBag className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />
-                            Comprar
-                          </Button>
-                          <Button
-                            variant="outline"
-                            className="flex-1 border-gray-600 hover:bg-gray-700 text-sm sm:text-base"
-                            size="sm"
-                          >
-                            <ExternalLink className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />
-                            Más Detalles
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-
-              {onGoToDashboard && (
-                <div className="mt-6 text-center">
-                  <Button variant="outline" className="border-blue-500 text-blue-400 hover:bg-blue-500/10" onClick={onGoToDashboard}>
-                    Ir al Dashboard
-                  </Button>
+              {hasUserFrames && !hasMatchingFrames ? (
+                <div className="text-center py-12 bg-gray-800/30 rounded-xl border border-dashed border-gray-700">
+                  <PlusCircle className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                  <h4 className="text-xl font-semibold text-white mb-2">No hay marcos para tu tipo de rostro</h4>
+                  <p className="text-gray-400 mb-6 max-w-md mx-auto">
+                    No tienes marcos en tu catálogo que coincidan con tu tipo de rostro ({faceAnalysis.faceShape}). 
+                    Puedes agregarlos desde el dashboard para obtener recomendaciones personalizadas.
+                  </p>
+                  {onGoToDashboard && (
+                    <Button
+                      onClick={onGoToDashboard}
+                      className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700"
+                    >
+                      Ir al Dashboard para agregar marcos
+                    </Button>
+                  )}
                 </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 md:gap-8">
+                    {recommendedFrames.map((frame) => {
+                      const compatibility = calculateCompatibility(frame)
+                      return (
+                        <div key={frame.id} className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden hover:border-blue-500/50 transition-all hover:scale-105 group">
+                          <div className="relative aspect-video bg-gray-900">
+                            <img
+                              src={frame.imageUrl || `/placeholder.svg?height=300&width=400&text=${frame.name}`}
+                              alt={frame.name}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                            />
+                            <Badge className="absolute top-2 right-2 sm:top-3 sm:right-3 bg-green-500/90 text-white text-xs sm:text-sm">
+                              {compatibility}% Compatible
+                            </Badge>
+                          </div>
+                          <div className="p-4 sm:p-5 md:p-6">
+                            <div className="flex justify-between items-start mb-2">
+                              <h4 className="text-lg sm:text-xl font-bold text-white">{frame.name}</h4>
+                              <span className="font-bold text-green-400 text-sm sm:text-base">{frame.price}</span>
+                            </div>
+                            <p className="text-xs sm:text-sm text-blue-400 mb-2 sm:mb-3">{frame.style}</p>
+                            <p className="text-xs sm:text-sm text-gray-300 mb-4 line-clamp-2">{frame.description}</p>
+                            {/* Medidas del marco */}
+                            <div className="grid grid-cols-4 gap-1 mb-4">
+                              <div className="text-center">
+                                <p className="text-xs text-gray-400">Ancho</p>
+                                <p className="text-white text-xs font-semibold">{frame.measurements.width}</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-xs text-gray-400">Alto</p>
+                                <p className="text-white text-xs font-semibold">{frame.measurements.height}</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-xs text-gray-400">Puente</p>
+                                <p className="text-white text-xs font-semibold">{frame.measurements.bridge}</p>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-xs text-gray-400">Temple</p>
+                                <p className="text-white text-xs font-semibold">{frame.measurements.temple}</p>
+                              </div>
+                            </div>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                              <Button
+                                className="flex-1 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-sm sm:text-base"
+                                size="sm"
+                                onClick={() => window.open(frame.purchaseLink, '_blank')}
+                              >
+                                <ShoppingBag className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />
+                                Comprar
+                              </Button>
+                              <Button
+                                variant="outline"
+                                className="flex-1 border-gray-600 hover:bg-gray-700 text-sm sm:text-base"
+                                size="sm"
+                              >
+                                <ExternalLink className="w-3 h-3 sm:w-4 sm:h-4 mr-2" />
+                                Más Detalles
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  {hasUserFrames && hasMatchingFrames && onGoToDashboard && (
+                    <div className="mt-6 text-center">
+                      <Button
+                        variant="outline"
+                        className="border-blue-500 text-blue-400 hover:bg-blue-500/10"
+                        onClick={onGoToDashboard}
+                      >
+                        Ver todos mis marcos
+                      </Button>
+                    </div>
+                  )}
+
+                  {!hasUserFrames && onGoToDashboard && (
+                    <div className="mt-6 text-center">
+                      <Button
+                        variant="outline"
+                        className="border-purple-500 text-purple-400 hover:bg-purple-500/10"
+                        onClick={onGoToDashboard}
+                      >
+                        Agregar mis propios marcos
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

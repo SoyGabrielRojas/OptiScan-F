@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Scan, Award, Clock, ArrowRight, Calendar, Edit, Trash2, Plus, Upload, X, Loader2, AlertCircle } from "lucide-react"
+import { Scan, Award, Clock, ArrowRight, Calendar, Edit, Trash2, Plus, Upload, X, Loader2, AlertCircle, ExternalLink } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog"
@@ -228,94 +228,82 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
 
   // Cargar marcos desde la API con mejor manejo de errores
   const loadFrames = async (showLoading = true) => {
-    if (showLoading) {
-      setLoading(true);
-    }
-    setLoadError(null);
+    if (showLoading) setLoading(true)
+    setLoadError(null)
 
     try {
-      const token = localStorage.getItem('auth_token');
+      const token = localStorage.getItem('auth_token')
       if (!token) {
-        setLoadError('No hay sesión activa');
-        return;
+        setLoadError('No hay sesión activa')
+        return
       }
 
       const response = await fetch('/api/user/frames', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
+        headers: { 'Authorization': `Bearer ${token}` },
+      })
 
       if (response.status === 401) {
-        setLoadError('Sesión expirada. Por favor, vuelve a iniciar sesión');
-        return;
+        setLoadError('Sesión expirada. Por favor, vuelve a iniciar sesión')
+        return
       }
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Error ${response.status}: ${errorText}`);
+        throw new Error(`Error ${response.status}: ${await response.text()}`)
       }
 
-      const data = await response.json();
+      const data = await response.json()
+      console.log('📦 Respuesta de API /frames:', data)
 
       if (data.success) {
         const transformedFrames = (data.frames || []).map((frame: any): Frame | null => {
           try {
-            if (!frame) {
-              console.warn('⚠️ Frame nulo encontrado en la respuesta de la API');
-              return null;
+            if (!frame) return null
+
+            // Usar directamente los nombres devueltos por la API (camelCase)
+            const measurements: FrameMeasurements = {
+              width: frame.measurements?.width || '',
+              height: frame.measurements?.height || '',
+              bridge: frame.measurements?.bridge || '',
+              temple: frame.measurements?.temple || ''
             }
 
-            // FUNCIÓN AUXILIAR para manejar valores null de la BD
-            const parseMeasurementFromDB = (value: any) => {
-              return value === null || value === undefined ? '' : String(value);
-            };
-
-            const measurements: FrameMeasurements = {
-              width: parseMeasurementFromDB(frame.width_mm),
-              height: parseMeasurementFromDB(frame.height_mm),
-              bridge: parseMeasurementFromDB(frame.bridge_mm),
-              temple: parseMeasurementFromDB(frame.temple_mm)
-            };
-
-            let faceType = String(frame.style || '');
+            let faceType = String(frame.style || '')
             if (!faceType && validateMeasurements(measurements)) {
-              faceType = calculateFaceType(measurements);
+              faceType = calculateFaceType(measurements)
             }
 
             return {
-              id: String(frame.id || ''),
+              id: String(frame.id),
               name: String(frame.name || 'Sin nombre'),
               faceType,
               description: String(frame.description || ''),
               price: String(frame.price || ''),
-              imageUrl: String(frame.image_url || ''),
-              purchaseLink: String(frame.purchase_link || ''),
-              isActive: Boolean(frame.is_active),
+              imageUrl: String(frame.imageUrl || ''),        // camelCase
+              purchaseLink: String(frame.purchaseLink || ''), // camelCase
+              isActive: Boolean(frame.isActive),              // camelCase
               measurements
-            };
+            }
           } catch (error) {
-            console.error('❌ Error transformando frame:', error, frame);
-            return null;
+            console.error('Error transformando frame:', error, frame)
+            return null
           }
-        }).filter((frame: Frame | null): frame is Frame => frame !== null);
+        }).filter((f): f is Frame => f !== null)
 
-        setFrames(transformedFrames);
-        const totalFrames = transformedFrames.length;
-        const activeFrames = transformedFrames.filter((f: Frame) => f.isActive).length;
-        setFrameStats({ totalFrames, activeFrames });
+        setFrames(transformedFrames)
+        setFrameStats({
+          totalFrames: transformedFrames.length,
+          activeFrames: transformedFrames.filter(f => f.isActive).length
+        })
       } else {
-        setLoadError(data.message || 'No se pudieron cargar los marcos');
+        setLoadError(data.message || 'No se pudieron cargar los marcos')
       }
     } catch (error: any) {
-      console.error('❌ Error loading frames:', error);
-      setLoadError(error.message || 'Error al cargar los marcos');
+      console.error('❌ Error loading frames:', error)
+      setLoadError(error.message || 'Error al cargar los marcos')
     } finally {
-      if (showLoading) {
-        setLoading(false);
-      }
+      if (showLoading) setLoading(false)
     }
-  };
+  }
 
   // Función para agregar un nuevo marco
   const handleAddFrame = async () => {
@@ -769,10 +757,10 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                         "Inactiva"}
                   </p>
                   <Badge className={`mt-2 text-xs ${userData.subscription?.status === "active" ?
-                      "bg-green-500" :
-                      userData.subscription?.status === "trial" ?
-                        "bg-yellow-500" :
-                        "bg-gray-500"
+                    "bg-green-500" :
+                    userData.subscription?.status === "trial" ?
+                      "bg-yellow-500" :
+                      "bg-gray-500"
                     }`}>
                     {userData.subscription?.status === "active" ?
                       "Activa" :
@@ -1133,6 +1121,10 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                           src={frame.imageUrl || "/placeholder.svg"}
                           alt={frame.name}
                           className="w-full h-full object-cover"
+                          onError={(e) => {
+                            console.error('Error cargando imagen:', frame.imageUrl)
+                            e.currentTarget.src = "/placeholder.svg"
+                          }}
                         />
                         <Badge className={`absolute top-2 right-2 ${frame.isActive ? 'bg-green-500' : 'bg-gray-500'}`}>
                           {frame.isActive ? 'Activo' : 'Inactivo'}
@@ -1180,6 +1172,21 @@ export function UserDashboard({ userData, onStartAnalysis, onGoToPricing }: User
                             </p>
                           </div>
                         </div>
+
+                        {/* Link de compra - AHORA VISIBLE */}
+                        {frame.purchaseLink && (
+                          <div className="mb-3">
+                            <a
+                              href={frame.purchaseLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Ver tienda
+                            </a>
+                          </div>
+                        )}
 
                         <div className="flex flex-col gap-2">
                           <div className="flex gap-2">
