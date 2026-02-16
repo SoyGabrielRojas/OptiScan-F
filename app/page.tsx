@@ -16,6 +16,24 @@ import { AdminDashboard } from "@/components/admin-dashboard"
 import { SupportModal } from "@/components/support-modal"
 import { authService } from '@/lib/services/authService';
 
+// Interfaz para los marcos del usuario
+interface Frame {
+  id: string
+  name: string
+  style: string
+  description: string
+  price: string
+  imageUrl: string
+  purchaseLink: string
+  isActive: boolean
+  measurements: {
+    width: string
+    height: string
+    bridge: string
+    temple: string
+  }
+}
+
 export default function OptiScan() {
   const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
@@ -54,6 +72,9 @@ export default function OptiScan() {
     }
   } | null>(null)
 
+  // Estado para los marcos del usuario
+  const [userFrames, setUserFrames] = useState<Frame[]>([])
+
   const [currentStep, setCurrentStep] = useState(1)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState(0)
@@ -91,6 +112,40 @@ export default function OptiScan() {
     version: "",
   })
 
+  // Función para cargar los marcos del usuario
+  const loadUserFrames = async () => {
+    try {
+      const token = localStorage.getItem('auth_token')
+      if (!token) return
+
+      const res = await fetch('/api/user/frames', {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const data = await res.json()
+      if (data.success) {
+        const frames = data.frames.map((frame: any) => ({
+          id: String(frame.id),
+          name: frame.name,
+          style: frame.style,
+          description: frame.description,
+          price: frame.price,
+          imageUrl: frame.imageUrl,
+          purchaseLink: frame.purchaseLink,
+          isActive: frame.isActive,
+          measurements: {
+            width: frame.measurements?.width || '',
+            height: frame.measurements?.height || '',
+            bridge: frame.measurements?.bridge || '',
+            temple: frame.measurements?.temple || ''
+          }
+        }))
+        setUserFrames(frames)
+      }
+    } catch (error) {
+      console.error('Error loading user frames:', error)
+    }
+  }
+
   // Verificar sesión al cargar
   useEffect(() => {
     const checkSession = async () => {
@@ -99,6 +154,7 @@ export default function OptiScan() {
         setIsLoggedIn(true)
         setIsAdmin(session.user.role === 'admin')
         setUserData(session.user)
+        await loadUserFrames() // Cargar los marcos del usuario
       }
     }
     checkSession()
@@ -164,6 +220,7 @@ export default function OptiScan() {
       setIsLoggedIn(true);
       setIsAdmin(result.user?.role === 'admin');
       setUserData(result.user);
+      await loadUserFrames(); // Cargar marcos después del login
       setShowLanding(true);
       setShowRegister(false);
     } else {
@@ -177,6 +234,7 @@ export default function OptiScan() {
       setIsLoggedIn(true);
       setIsAdmin(false);
       setUserData(result.user);
+      // El usuario nuevo no tiene marcos, no es necesario cargarlos
       setShowLanding(true);
       setShowRegister(false);
     } else {
@@ -195,6 +253,7 @@ export default function OptiScan() {
     setShowRegister(false)
     setSelectedPlan(null)
     setUserData(null)
+    setUserFrames([]) // Limpiar marcos al cerrar sesión
     resetAnalysis()
   }
 
@@ -565,7 +624,7 @@ export default function OptiScan() {
                 startAnalysis()
               }}
               onGoToDashboard={goToDashboard}
-              userFrames={[]}
+              userFrames={userFrames} // Se pasan los marcos reales del usuario
               onGeneratePDF={generatePDFReport}
               isGeneratingPDF={isGeneratingPDF}
               showDownloadProgress={showDownloadProgress}

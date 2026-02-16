@@ -116,59 +116,78 @@ export function AnalysisStep3({
 
   // Filtrar marcos del usuario activos que coincidan con el tipo de rostro detectado
   useEffect(() => {
-    // Primero, verificar si hay marcos de usuario
-    const hasAnyUserFrames = userFrames.length > 0
-    setHasUserFrames(hasAnyUserFrames)
+    console.log('🔍 Step3 - userFrames recibidos:', userFrames);
+    console.log('🔍 Step3 - faceShape del backend:', faceAnalysis.faceShape);
+
+    const hasAnyUserFrames = userFrames.length > 0;
+    setHasUserFrames(hasAnyUserFrames);
 
     if (hasAnyUserFrames) {
-      // Filtrar marcos activos cuyo estilo coincida con el tipo de rostro (ignorando mayúsculas)
-      const matchingFrames = userFrames.filter(frame => 
-        frame.isActive && 
-        frame.style.toLowerCase() === faceAnalysis.faceShape.toLowerCase()
-      )
-      
-      setHasMatchingFrames(matchingFrames.length > 0)
-      setRecommendedFrames(matchingFrames)
+      // Función para normalizar: quitar tildes, pasar a minúsculas y eliminar espacios extras
+      const normalize = (str: string) => {
+        return str
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "") // elimina tildes
+          .toLowerCase()
+          .trim();
+      };
+
+      const targetShape = normalize(faceAnalysis.faceShape);
+      console.log('🎯 Forma normalizada objetivo:', targetShape);
+
+      const matchingFrames = userFrames.filter(frame => {
+        const frameStyle = normalize(frame.style);
+        const isActive = frame.isActive;
+        const matches = isActive && frameStyle === targetShape;
+        if (matches) {
+          console.log('✅ Marco coincidente:', frame.name, '| estilo:', frame.style);
+        }
+        return matches;
+      });
+
+      console.log('📦 Marcos coincidentes encontrados:', matchingFrames.length);
+      setHasMatchingFrames(matchingFrames.length > 0);
+      setRecommendedFrames(matchingFrames);
     } else {
-      // Si no hay marcos de usuario, usar los por defecto
-      setHasMatchingFrames(true) // consideramos que los default siempre coinciden
-      setRecommendedFrames(defaultFrames)
+      console.log('ℹ️ No hay marcos de usuario, usando recomendaciones generales');
+      setHasMatchingFrames(true); // consideramos que los default siempre coinciden
+      setRecommendedFrames(defaultFrames);
     }
-  }, [userFrames, faceAnalysis.faceShape, defaultFrames])
+  }, [userFrames, faceAnalysis.faceShape, defaultFrames]);
 
   // Medidas del rostro (reales del backend) - solo tres
   const measurements = [
     { label: "Ancho de Rostro", value: faceAnalysis.measurements.faceWidth, icon: Ruler },
     { label: "Alto de Rostro", value: faceAnalysis.measurements.faceHeight, icon: Ruler },
     { label: "Distancia entre Ojos", value: faceAnalysis.measurements.eyeDistance, icon: Eye },
-  ]
+  ];
 
   // Colores recomendados (desde skinToneDetails o fallback)
   const recommendedColors = useMemo(() => {
-    const tono = faceAnalysis.skinToneDetails
+    const tono = faceAnalysis.skinToneDetails;
     if (tono?.recomendaciones?.colores_recomendados) {
       return tono.recomendaciones.colores_recomendados.map((c: any) => ({
         name: c.nombre,
         hex: c.hex,
         description: c.descripcion,
-      }))
+      }));
     }
     // Fallback
     return [
       { name: "Negro Clásico", hex: "#000000", description: "Elegante y versátil" },
       { name: "Gris Plata", hex: "#C0C0C0", description: "Refinado y contemporáneo" },
-    ]
-  }, [faceAnalysis.skinToneDetails])
+    ];
+  }, [faceAnalysis.skinToneDetails]);
 
   // Calcular compatibilidad (ejemplo simple)
   const calculateCompatibility = (frame: Frame) => {
-    const frameWidth = parseInt(frame.measurements.width.replace('mm', '')) || 140
-    const faceWidth = parseFloat(faceAnalysis?.measurements?.faceWidth?.replace(' cm', '') || "18.5") * 10
-    const diff = Math.abs(frameWidth - faceWidth)
-    let compatibility = 100 - (diff * 2)
-    compatibility = Math.max(70, Math.min(95, compatibility))
-    return Math.round(compatibility)
-  }
+    const frameWidth = parseInt(frame.measurements.width.replace('mm', '')) || 140;
+    const faceWidth = parseFloat(faceAnalysis?.measurements?.faceWidth?.replace(' cm', '') || "18.5") * 10;
+    const diff = Math.abs(frameWidth - faceWidth);
+    let compatibility = 100 - diff * 2;
+    compatibility = Math.max(70, Math.min(95, compatibility));
+    return Math.round(compatibility);
+  };
 
   return (
     <div className="min-h-screen w-full relative overflow-hidden">
@@ -289,7 +308,7 @@ export function AnalysisStep3({
                   <PlusCircle className="w-16 h-16 text-gray-600 mx-auto mb-4" />
                   <h4 className="text-xl font-semibold text-white mb-2">No hay marcos para tu tipo de rostro</h4>
                   <p className="text-gray-400 mb-6 max-w-md mx-auto">
-                    No tienes marcos en tu catálogo que coincidan con tu tipo de rostro ({faceAnalysis.faceShape}). 
+                    No tienes marcos en tu catálogo que coincidan con tu tipo de rostro ({faceAnalysis.faceShape}).
                     Puedes agregarlos desde el dashboard para obtener recomendaciones personalizadas.
                   </p>
                   {onGoToDashboard && (
